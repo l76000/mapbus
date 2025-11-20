@@ -125,7 +125,7 @@ export default function handler(req, res) {
         let izabraneLinije = [];
         let timerId = null;
         let countdownId = null;
-        let refreshTime = 60; // 👈 PROMENJENA VREDNOST SA 15 NA 60 SEKUNDI
+        let refreshTime = 60;
  
         let timeLeft = 0;
  
@@ -153,6 +153,9 @@ export default function handler(req, res) {
                 if (!response.ok) throw new Error("Greška pri učitavanju stanica");
                 const stations = await response.json();
                 
+                console.log("Učitano stanica:", stations.length);
+                console.log("Primer prve 3 stanice:", stations.slice(0, 3));
+                
                 // Kreiramo mapu id -> name
                 stations.forEach(station => {
                     if (station.id && station.name) {
@@ -160,7 +163,8 @@ export default function handler(req, res) {
                     }
                 });
                 
-                console.log(\`Učitano \${Object.keys(stationNames).length} stanica\`);
+                console.log(\`Mapa stationNames ima \${Object.keys(stationNames).length} unosa\`);
+                console.log("Primer prvih 10 ključeva u mapi:", Object.keys(stationNames).slice(0, 10));
             } catch (error) {
                 console.error("Greška pri učitavanju stanica:", error);
             }
@@ -270,9 +274,29 @@ export default function handler(req, res) {
  
                 const destId = tripDestinations[tripId] || "Unknown";
                 
-                // Konvertuj stopId u format koji odgovara all.json (ukloni prvu cifru)
-                const normalizedId = destId.length === 5 ? destId.substring(1) : destId;
-                const destName = stationNames[normalizedId] || destId;
+                console.log("destId iz API:", destId, "tip:", typeof destId);
+                
+                // Probamo različite načine mapiranja
+                let normalizedId = destId;
+                if (typeof destId === 'string' && destId.length === 5) {
+                    normalizedId = destId.substring(1); // Ukloni prvu cifru
+                    console.log("Normalizovan ID (bez prve cifre):", normalizedId);
+                }
+                
+                let destName = stationNames[normalizedId];
+                console.log("Tražim u mapi ključ:", normalizedId, "-> rezultat:", destName);
+                
+                // Ako ne nađemo, pokušamo i sa originalnim destId
+                if (!destName) {
+                    destName = stationNames[destId];
+                    console.log("Pokušavam originalni destId:", destId, "-> rezultat:", destName);
+                }
+                
+                // Ako i dalje nema, prikaži ID
+                if (!destName) {
+                    destName = destId;
+                    console.log("Nije pronađeno ime, koristim ID:", destId);
+                }
                 
                 const uniqueDirKey = \`\${route}_\${destId}\`;
  
@@ -294,13 +318,10 @@ export default function handler(req, res) {
                     if (distance > 0.00001) { 
                         rotation = calculateBearing(prev.lat, prev.lon, lat, lon);
                         hasAngle = true;
-                        console.log(\`Vozilo \${route} (\${id}) se pomerilo: \${distance.toFixed(6)}°, ugao: \${rotation.toFixed(1)}°\`);
                     } else {
                         rotation = prev.angle;
                         hasAngle = prev.hasAngle;
                     }
-                } else {
-                    console.log(\`Vozilo \${route} (\${id}) se pojavljuje prvi put na \${lat}, \${lon}\`);
                 }
  
                 vehicleHistory[id] = { 
