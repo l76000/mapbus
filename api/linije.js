@@ -41,7 +41,7 @@ export default function handler(req, res) {
  
         /* MARKERI */
         .bus-icon-container { background: none; border: none; }
-        .bus-wrapper { position: relative; width: 44px; height: 44px; transition: all 0.3s ease; }
+        .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
  
         .bus-circle {
             width: 32px; height: 32px; border-radius: 50%; 
@@ -49,8 +49,23 @@ export default function handler(req, res) {
             display: flex; justify-content: center; align-items: center;
             font-weight: bold; font-size: 13px;
             border: 2px solid white; box-shadow: 0 3px 6px rgba(0,0,0,0.4);
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%);
             z-index: 20;
+        }
+        
+        .bus-garage-label {
+            position: absolute; 
+            top: 36px; 
+            left: 50%; 
+            transform: translateX(-50%);
+            font-size: 9px;
+            font-weight: bold;
+            color: white;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 2px 5px;
+            border-radius: 3px;
+            white-space: nowrap;
+            z-index: 19;
         }
  
         /* Strelica */
@@ -248,14 +263,15 @@ export default function handler(req, res) {
                         <div class="bus-circle" style="background: \${color};">
                             \${route}
                         </div>
+                        <div class="bus-garage-label">\${label}</div>
                     </div>
                 \`;
  
                 const icon = L.divIcon({
                     className: 'bus-icon-container',
                     html: iconHtml,
-                    iconSize: [44, 44],
-                    iconAnchor: [22, 22]
+                    iconSize: [50, 56],
+                    iconAnchor: [25, 28]
                 });
  
                 const popupContent = \`
