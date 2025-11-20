@@ -134,6 +134,9 @@ export default function handler(req, res) {
  
         // Mapa boja za smerove
         let directionColorMap = {};
+
+        // Mapa imena stanica
+        let stationNames = {};
  
         // Paleta boja
         const colors = [
@@ -141,6 +144,30 @@ export default function handler(req, res) {
             '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
             '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
         ];
+
+        // ================= UČITAVANJE STANICA =================
+        
+        async function loadStations() {
+            try {
+                const response = await fetch('/api/all.json');
+                if (!response.ok) throw new Error("Greška pri učitavanju stanica");
+                const stations = await response.json();
+                
+                // Kreiramo mapu id -> name
+                stations.forEach(station => {
+                    if (station.id && station.name) {
+                        stationNames[station.id] = station.name;
+                    }
+                });
+                
+                console.log(\`Učitano \${Object.keys(stationNames).length} stanica\`);
+            } catch (error) {
+                console.error("Greška pri učitavanju stanica:", error);
+            }
+        }
+
+        // Pozivamo odmah na početku
+        loadStations();
 
         // ================= FILTERI =================
         
@@ -242,6 +269,7 @@ export default function handler(req, res) {
                 const lon = v.vehicle.position.longitude;
  
                 const destId = tripDestinations[tripId] || "Unknown";
+                const destName = stationNames[destId] || destId; // Koristi ime stanice ako postoji, inače ID
                 const uniqueDirKey = \`\${route}_\${destId}\`;
  
                 if (!directionColorMap[uniqueDirKey]) {
@@ -305,7 +333,7 @@ export default function handler(req, res) {
                         <div class="popup-row"><span class="popup-label">Garažni:</span> \${label}</div>
                         <hr style="margin: 5px 0; border-color:#eee;">
                         <div class="popup-row"><span class="popup-label">Polazak:</span> <b>\${startTime}</b></div>
-                        <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:\${color}; font-weight:bold;">\${destId}</span></div>
+                        <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:\${color}; font-weight:bold;">\${destName}</span></div>
                     </div>
                 \`;
  
