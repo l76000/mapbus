@@ -165,7 +165,7 @@ export default function handler(req, res) {
             '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
         ];
 
-        // ================= FUNKCIJA ZA NORMALIZACIJU ID-a =================
+        // ================= FUNKCIJA ZA NORMALIZACIJU =================
         
         function normalizeStopId(stopId) {
             if (typeof stopId === 'string' && stopId.length === 5 && stopId.startsWith('2')) {
@@ -174,6 +174,13 @@ export default function handler(req, res) {
                 return normalized;
             }
             return stopId;
+        }
+
+        function normalizeRouteId(routeId) {
+            if (typeof routeId === 'string') {
+                return parseInt(routeId, 10).toString();
+            }
+            return routeId;
         }
 
         // ================= UČITAVANJE STANICA =================
@@ -267,44 +274,38 @@ export default function handler(req, res) {
             destinationLayer.clearLayers();
  
             let tripDestinations = {};
-            let debugCount = 0;
             
-            // Analiziraj tripUpdate podatke
+            // PRVO: Prikupi destinacije iz tripUpdate
             entiteti.forEach(e => {
                 if (e.tripUpdate && e.tripUpdate.trip && e.tripUpdate.stopTimeUpdate) {
                     const updates = e.tripUpdate.stopTimeUpdate;
                     const vehicleId = e.tripUpdate.vehicle?.id || 'unknown';
-                    const routeId = e.tripUpdate.trip?.routeId || 'unknown';
-                    
-                    // Prikaži debug za prvo vozilo na liniji 601
-                    if (debugCount < 1 && routeId === '601') {
-                        console.log(\`🚌 DEBUG za vozilo \${vehicleId} na liniji \${routeId}:\`);
-                        console.log(\`   Ukupno stanica u ruti: \${updates.length}\`);
-                        
-                        if (updates.length > 0) {
-                            const firstStop = updates[0].stopId;
-                            const lastStop = updates[updates.length - 1].stopId;
-                            
-                            const firstNorm = normalizeStopId(firstStop);
-                            const lastNorm = normalizeStopId(lastStop);
-                            
-                            console.log(\`   Prva stanica: \${firstStop} -> \${stationsMap[firstNorm]?.name || 'Nepoznato'}\`);
-                            console.log(\`   Poslednja stanica: \${lastStop} -> \${stationsMap[lastNorm]?.name || 'Nepoznato'}\`);
-                            console.log(\`   Trip ID: \${e.tripUpdate.trip.tripId}\`);
-                        }
-                        debugCount++;
-                    }
                     
                     if (updates.length > 0) {
-                        // Uzmi poslednju stanicu kao destinaciju
-                        tripDestinations[e.tripUpdate.trip.tripId] = updates[updates.length - 1].stopId;
+                        const lastStopId = updates[updates.length - 1].stopId;
+                        tripDestinations[e.tripUpdate.trip.tripId] = lastStopId;
+                        
+                        // DEBUG ZA VOZILO 70618
+                        if (vehicleId === 'P70618' || vehicleId === '70618') {
+                            console.log('🚨 DEBUG VOZILO P70618:');
+                            console.log('  Trip ID:', e.tripUpdate.trip.tripId);
+                            console.log('  Broj stanica:', updates.length);
+                            console.log('  Prva stanica ID:', updates[0].stopId);
+                            console.log('  Poslednja stanica ID:', lastStopId);
+                            
+                            const firstNorm = normalizeStopId(updates[0].stopId);
+                            const lastNorm = normalizeStopId(lastStopId);
+                            
+                            console.log('  Prva stanica naziv:', stationsMap[firstNorm]?.name || 'N/A');
+                            console.log('  Poslednja stanica naziv:', stationsMap[lastNorm]?.name || 'N/A');
+                        }
                     }
                 }
             });
  
             const vozila = entiteti.filter(e => {
                 if (!e.vehicle || !e.vehicle.position) return false;
-                const routeId = parseInt(e.vehicle.trip.routeId).toString();
+                const routeId = normalizeRouteId(e.vehicle.trip.routeId);
                 
                 if (!izabraneLinije.includes(routeId)) return false;
                 
@@ -321,12 +322,22 @@ export default function handler(req, res) {
             let destinationInfo = {};
  
             vozila.forEach(v => {
-                const route = parseInt(v.vehicle.trip.routeId).toString();
+                const route = normalizeRouteId(v.vehicle.trip.routeId);
                 const tripId = v.vehicle.trip.tripId;
+                const vehicleId = v.vehicle.vehicle.id;
                 const destId = tripDestinations[tripId] || "Unknown";
                 
                 const normalizedId = normalizeStopId(destId);
                 const uniqueDirKey = \`\${route}_\${destId}\`;
+                
+                // DEBUG ZA P70618
+                if (vehicleId === 'P70618' || vehicleId === '70618') {
+                    console.log('🚨 P70618 prikazuje destinaciju:');
+                    console.log('  Trip ID:', tripId);
+                    console.log('  destId:', destId);
+                    console.log('  normalizedId:', normalizedId);
+                    console.log('  Naziv stanice:', stationsMap[normalizedId]?.name || 'N/A');
+                }
                 
                 if (!directionColorMap[uniqueDirKey]) {
                     const nextColorIndex = Object.keys(directionColorMap).length % colors.length;
@@ -377,7 +388,7 @@ export default function handler(req, res) {
             vozila.forEach(v => {
                 const id = v.vehicle.vehicle.id || v.id;
                 const label = v.vehicle.vehicle.label;
-                const route = parseInt(v.vehicle.trip.routeId).toString();
+                const route = normalizeRouteId(v.vehicle.trip.routeId);
                 const tripId = v.vehicle.trip.tripId;
                 const startTime = v.vehicle.trip.startTime || "N/A";
                 const lat = v.vehicle.position.latitude;
