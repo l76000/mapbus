@@ -116,9 +116,12 @@ export default function handler(req, res) {
  
         // Istorija za smer
         let vehicleHistory = {};
-        
-        // Mapa boja za smerove po liniji
-        let lineDirectionColors = {};
+ 
+        // Mapa boja za smerove - samo 2 boje po liniji
+        let directionColorMap = {};
+ 
+        // Boje za smerove: CRVENA i PLAVA
+        const directionColors = ['#e74c3c', '#3498db'];
  
         // ================= LOGIKA =================
  
@@ -169,69 +172,48 @@ export default function handler(req, res) {
         function crtajVozila(entiteti) {
             busLayer.clearLayers();
  
-            // KORAK 1: Ekstraktuj poslednje stanice za svaki trip iz tripUpdate
+            // Pronađi krajnje stanice za svaki trip
             let tripDestinations = {};
             entiteti.forEach(e => {
                 if (e.tripUpdate && e.tripUpdate.trip && e.tripUpdate.stopTimeUpdate) {
                     const updates = e.tripUpdate.stopTimeUpdate;
                     if (updates.length > 0) {
-                        const lastStop = updates[updates.length - 1].stopId;
-                        tripDestinations[e.tripUpdate.trip.tripId] = lastStop;
+                        tripDestinations[e.tripUpdate.trip.tripId] = updates[updates.length - 1].stopId;
                     }
                 }
             });
  
-            console.log('Trip Destinations:', tripDestinations);
- 
-            // KORAK 2: Filtriraj vozila za izabrane linije
             const vozila = entiteti.filter(e => {
                 if (!e.vehicle || !e.vehicle.position) return false;
                 const routeId = parseInt(e.vehicle.trip.routeId).toString();
                 return izabraneLinije.includes(routeId);
             });
  
-            // KORAK 3: Za svaku liniju, pronađi dva najčešća smera (poslednje stanice)
-            let lineDestinations = {};
-            
+            // Grupiši smerove po linijama
+            let routeDirections = {};
             vozila.forEach(v => {
                 const route = parseInt(v.vehicle.trip.routeId).toString();
                 const tripId = v.vehicle.trip.tripId;
-                const destination = tripDestinations[tripId];
-                
-                if (destination) {
-                    if (!lineDestinations[route]) {
-                        lineDestinations[route] = {};
-                    }
-                    if (!lineDestinations[route][destination]) {
-                        lineDestinations[route][destination] = 0;
-                    }
-                    lineDestinations[route][destination]++;
+                const destId = tripDestinations[tripId] || "Unknown";
+ 
+                if (!routeDirections[route]) {
+                    routeDirections[route] = new Set();
                 }
+                routeDirections[route].add(destId);
             });
  
-            // KORAK 4: Za svaku liniju, sortiraj smerove po učestalosti i dodeli boje
-            Object.keys(lineDestinations).forEach(route => {
-                const destinations = lineDestinations[route];
-                const sortedDestinations = Object.entries(destinations)
-                    .sort((a, b) => b[1] - a[1]) // Sortiraj po broju vozila (silazno)
-                    .map(entry => entry[0]); // Uzmi samo stopId
-                
-                console.log('Linija ' + route + ' smerovi:', sortedDestinations);
-                
-                // Dodeli boje: prvi smer = CRVENA, drugi smer = PLAVA
-                if (!lineDirectionColors[route]) {
-                    lineDirectionColors[route] = {};
-                }
-                
-                if (sortedDestinations.length > 0) {
-                    lineDirectionColors[route][sortedDestinations[0]] = '#e74c3c'; // CRVENA
-                }
-                if (sortedDestinations.length > 1) {
-                    lineDirectionColors[route][sortedDestinations[1]] = '#3498db'; // PLAVA
-                }
+            // Dodeli boje - samo PRVA DVA smera dobijaju boje (crvena i plava)
+            Object.keys(routeDirections).forEach(route => {
+                const directions = Array.from(routeDirections[route]);
+                directions.forEach((destId, index) => {
+                    const uniqueDirKey = route + '_' + destId;
+                    if (!directionColorMap[uniqueDirKey]) {
+                        // Ako ima više od 2 smera, treći i dalje dobijaju colors[0] i colors[1] naizmenično
+                        directionColorMap[uniqueDirKey] = directionColors[index % 2];
+                    }
+                });
             });
  
-            // KORAK 5: Crtaj vozila sa bojama
             vozila.forEach(v => {
                 const id = v.vehicle.vehicle.id || v.id;
                 const label = v.vehicle.vehicle.label;
@@ -241,13 +223,10 @@ export default function handler(req, res) {
                 const lat = v.vehicle.position.latitude;
                 const lon = v.vehicle.position.longitude;
  
-                const destination = tripDestinations[tripId] || 'Unknown';
-                
-                // Odredi boju na osnovu linije i poslednje stanice
-                let color = '#95a5a6'; // siva (default)
-                if (lineDirectionColors[route] && lineDirectionColors[route][destination]) {
-                    color = lineDirectionColors[route][destination];
-                }
+                const destId = tripDestinations[tripId] || "Unknown";
+                const uniqueDirKey = route + '_' + destId;
+ 
+                const color = directionColorMap[uniqueDirKey] || '#95a5a6';
  
                 let rotation = 0;
                 let hasAngle = false;
@@ -297,7 +276,7 @@ export default function handler(req, res) {
                     '<div class="popup-row"><span class="popup-label">Garažni:</span> ' + label + '</div>' +
                     '<hr style="margin: 5px 0; border-color:#eee;">' +
                     '<div class="popup-row"><span class="popup-label">Polazak:</span> <b>' + startTime + '</b></div>' +
-                    '<div class="popup-row"><span class="popup-label">Krajnja stanica:</span> <span style="color:' + color + '; font-weight:bold;">' + destination + '</span></div>' +
+                    '<div class="popup-row"><span class="popup-label">Smer ID:</span> <span style="color:' + color + '; font-weight:bold;">' + destId + '</span></div>' +
                     '<div class="popup-row"><span class="popup-label">Ugao:</span> ' + rotation.toFixed(1) + '°</div>' +
                 '</div>';
  
