@@ -109,10 +109,10 @@ export default function handler(req, res) {
         var sviPodaci = []; 
         
         const url = '/api/proxy';
-        const REFRESH_INTERVAL = 30000; // 30 sekundi
+        const REFRESH_INTERVAL = 60000; // 30 sekundi
         var refreshTimer;
         var countdown;
-        var remainingSeconds = 30;
+        var remainingSeconds = 60;
  
         function ucitajAutobuse() {
             // Prikaži loading karticu
