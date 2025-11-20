@@ -168,17 +168,8 @@ export default function handler(req, res) {
         // ================= FUNKCIJA ZA NORMALIZACIJU ID-a =================
         
         function normalizeStopId(stopId) {
-            // stopId iz API-ja je u formatu 2XXXX (5 cifara)
-            // all.json ima id bez prve cifre i bez vodećih nula
-            // 21965 -> 1965
-            // 20934 -> 934
-            // 20998 -> 998
-            // 20001 -> 1
-            
             if (typeof stopId === 'string' && stopId.length === 5 && stopId.startsWith('2')) {
-                // Ukloni prvu cifru '2'
                 let normalized = stopId.substring(1);
-                // Ukloni vodeće nule konvertovanjem u broj pa natrag u string
                 normalized = parseInt(normalized, 10).toString();
                 return normalized;
             }
@@ -195,7 +186,6 @@ export default function handler(req, res) {
                 
                 console.log("✅ Učitano stanica:", stations.length);
                 
-                // Kreiramo mapu id -> {name, coords}
                 stations.forEach(station => {
                     if (station.id && station.name && station.coords) {
                         stationsMap[station.id] = {
@@ -206,13 +196,11 @@ export default function handler(req, res) {
                 });
                 
                 console.log(\`✅ Mapa stanica ima \${Object.keys(stationsMap).length} unosa\`);
-                console.log("Primer ID-ova:", Object.keys(stationsMap).slice(0, 20));
             } catch (error) {
                 console.error("❌ Greška pri učitavanju stanica:", error);
             }
         }
 
-        // Pozivamo odmah na početku
         loadStations();
 
         // ================= FILTERI =================
@@ -279,10 +267,25 @@ export default function handler(req, res) {
             destinationLayer.clearLayers();
  
             let tripDestinations = {};
+            
+            // NOVO: Detaljniji debug za vozilo 70618
             entiteti.forEach(e => {
                 if (e.tripUpdate && e.tripUpdate.trip && e.tripUpdate.stopTimeUpdate) {
                     const updates = e.tripUpdate.stopTimeUpdate;
+                    const vehicleId = e.tripUpdate.vehicle?.id || 'unknown';
+                    
+                    // Debug za specifično vozilo
+                    if (vehicleId === '70618') {
+                        console.log('🚌 VOZILO 70618 DEBUG:');
+                        console.log('  Trip ID:', e.tripUpdate.trip.tripId);
+                        console.log('  Broj stanica:', updates.length);
+                        console.log('  Prva stanica:', updates[0]?.stopId);
+                        console.log('  Poslednja stanica:', updates[updates.length - 1]?.stopId);
+                        console.log('  Sve stanice:', updates.map(u => u.stopId));
+                    }
+                    
                     if (updates.length > 0) {
+                        // Uzmi poslednju stanicu kao destinaciju
                         tripDestinations[e.tripUpdate.trip.tripId] = updates[updates.length - 1].stopId;
                     }
                 }
@@ -331,8 +334,6 @@ export default function handler(req, res) {
             destinations.forEach(destId => {
                 const info = destinationInfo[destId];
                 const station = stationsMap[info.normalizedId];
-                
-                console.log(\`Destinacija: API ID=\${destId}, Normalizovan=\${info.normalizedId}, Pronađeno=\${station ? station.name : 'NE'}\`);
                 
                 if (station && station.coords) {
                     const destHtml = \`
