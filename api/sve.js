@@ -76,11 +76,29 @@ export default function handler(req, res) {
             100% { transform: rotate(360deg); }
         }
         
-        /* Stil za kombinovanu karticu (pretraga + tajmer) */
-        .control-card {
+        /* Stil za refresh tajmer */
+        .refresh-timer {
             position: fixed;
             top: 10px;
             right: 10px;
+            background-color: white;
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            z-index: 999;
+            font-size: 14px;
+            color: #333;
+        }
+        
+        .refresh-timer strong {
+            color: #3498db;
+        }
+        
+        /* Stil za karticu pretrage */
+        .search-card {
+            position: fixed;
+            top: 10px;
+            left: 10px;
             background-color: white;
             padding: 10px;
             border-radius: 8px;
@@ -89,7 +107,7 @@ export default function handler(req, res) {
             width: 200px;
         }
         
-        .control-card input {
+        .search-card input {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
@@ -98,7 +116,7 @@ export default function handler(req, res) {
             box-sizing: border-box;
         }
         
-        .control-card input:focus {
+        .search-card input:focus {
             outline: none;
             border-color: #3498db;
         }
@@ -151,20 +169,6 @@ export default function handler(req, res) {
         .search-results::-webkit-scrollbar-thumb:hover {
             background: #555;
         }
-        
-        /* Stil za refresh tajmer unutar kartice */
-        .refresh-timer {
-            margin-top: 10px;
-            padding-top: 10px;
-            border-top: 1px solid #eee;
-            font-size: 13px;
-            color: #333;
-            text-align: center;
-        }
-        
-        .refresh-timer strong {
-            color: #3498db;
-        }
     </style>
 </head>
 <body>
@@ -174,12 +178,13 @@ export default function handler(req, res) {
         <div>Učitavanje...</div>
     </div>
     
-    <div class="control-card">
+    <div class="refresh-timer">
+        Sledeće ažuriranje za: <strong id="timer">65</strong>s
+    </div>
+    
+    <div class="search-card">
         <input type="text" id="searchInput" placeholder="Pretraži vozilo...">
         <div id="searchResults" class="search-results"></div>
-        <div class="refresh-timer">
-            Ažuriranje za: <strong id="timer">65</strong>s
-        </div>
     </div>
  
     <div id="map"></div>
@@ -367,6 +372,6 @@ export default function handler(req, res) {
 </html>
   `;
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.status(200).send(html);
 }
