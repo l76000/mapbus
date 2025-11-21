@@ -76,8 +76,8 @@ export default function handler(req, res) {
             100% { transform: rotate(360deg); }
         }
         
-        /* Stil za karticu pretrage */
-        .search-card {
+        /* Stil za kombinovanu karticu (pretraga + tajmer) */
+        .control-card {
             position: fixed;
             top: 10px;
             left: 60px;
@@ -89,7 +89,7 @@ export default function handler(req, res) {
             width: 200px;
         }
         
-        .search-card input {
+        .control-card input {
             width: 100%;
             padding: 8px;
             border: 1px solid #ddd;
@@ -98,7 +98,7 @@ export default function handler(req, res) {
             box-sizing: border-box;
         }
         
-        .search-card input:focus {
+        .control-card input:focus {
             outline: none;
             border-color: #3498db;
         }
@@ -152,20 +152,13 @@ export default function handler(req, res) {
             background: #555;
         }
         
-        /* Stil za refresh tajmer - ispod pretrage */
+        /* Stil za refresh tajmer unutar kartice */
         .refresh-timer {
-            position: fixed;
-            top: 120px;
-            left: 60px;
-            background-color: white;
-            padding: 10px 15px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            z-index: 999;
-            font-size: 14px;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+            font-size: 13px;
             color: #333;
-            width: 200px;
-            box-sizing: border-box;
             text-align: center;
         }
         
@@ -181,13 +174,12 @@ export default function handler(req, res) {
         <div>Učitavanje...</div>
     </div>
     
-    <div class="search-card">
+    <div class="control-card">
         <input type="text" id="searchInput" placeholder="Pretraži vozilo...">
         <div id="searchResults" class="search-results"></div>
-    </div>
-    
-    <div class="refresh-timer">
-        Sledeće ažuriranje za: <strong id="timer">65</strong>s
+        <div class="refresh-timer">
+            Ažuriranje za: <strong id="timer">65</strong>s
+        </div>
     </div>
  
     <div id="map"></div>
@@ -375,6 +367,6 @@ export default function handler(req, res) {
 </html>
   `;
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Type', 'text/html; charset=utf-8);
   res.status(200).send(html);
 }
