@@ -254,6 +254,18 @@ export default function handler(req, res) {
             return routeId;
         }
         
+        // ================= FILTER ZA GARAŽNE BROJEVE =================
+        
+        function isValidGarageNumber(label) {
+            if (!label || typeof label !== 'string') return false;
+            
+            if (label.startsWith('P')) {
+                return label.length >= 6;
+            }
+            
+            return true;
+        }
+        
         // ================= UČITAVANJE STANICA =================
         
         async function loadStations() {
@@ -342,6 +354,11 @@ export default function handler(req, res) {
                     var routeNum = parseInt(trip.routeId);
                     var vehicleLabel = info.vehicle.label;
                     var vehicleId = info.vehicle.id;
+                    
+                    // FILTRIRANJE: Proveri da li je garažni broj validan
+                    if (!isValidGarageNumber(vehicleLabel)) {
+                        return; // Preskoči ovo vozilo
+                    }
  
                     var pos = info.position;
                     var lat = parseFloat(pos.latitude);
