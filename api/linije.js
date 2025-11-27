@@ -13,6 +13,7 @@ export default function handler(req, res) {
         body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: #eee; }
         #map { height: 100vh; width: 100%; z-index: 1; }
  
+
         .controls {
             position: absolute; top: 10px; right: 10px; z-index: 1000;
             background: rgba(255, 255, 255, 0.98); padding: 15px;
@@ -38,6 +39,7 @@ export default function handler(req, res) {
  
         .status-bar { margin-top: 10px; font-size: 11px; color: #666; border-top: 1px solid #eee; padding-top: 8px; }
  
+
         .bus-icon-container { background: none; border: none; }
         .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
  
@@ -66,6 +68,7 @@ export default function handler(req, res) {
             z-index: 19;
         }
  
+
         .bus-arrow {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             transition: transform 0.5s linear;
@@ -78,9 +81,11 @@ export default function handler(req, res) {
             position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
         }
  
+        /* POPUP STIL */
         .popup-content { font-size: 13px; line-height: 1.4; }
         .popup-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
         .popup-label { font-weight: bold; color: #555; }
+
 
         .destination-marker {
             width: 24px;
@@ -142,221 +147,26 @@ export default function handler(req, res) {
         let timerId = null;
         let countdownId = null;
         let refreshTime = 60;
-        let timeLeft = 0;
-        let directionColorMap = {};
-        let stationsMap = {};
-        let routeNamesMap = {};
-        
-        // NOVI KOD - Shapes podaci i istorija vozila
-        let shapesData = {};
-        let shapesGradskeData = {};
-        let vehicleHistory = {};
-        let routeMappingData = {};
  
+        let timeLeft = 0;
+ 
+
+        let directionColorMap = {};
+
+
+        let stationsMap = {};
+ 
+
+        let routeNamesMap = {};
+ 
+
         const colors = [
             '#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f', 
             '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
             '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
         ];
 
-        // ========== SHAPES UTILITY FUNKCIJE ==========
-        
-        function parseShapesFile(text) {
-            const lines = text.split('\\n');
-            const shapes = {};
-            
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-                
-                const parts = line.split(',');
-                if (parts.length < 4) continue;
-                
-                const shapeId = parts[0].trim();
-                const lat = parseFloat(parts[1]);
-                const lon = parseFloat(parts[2]);
-                const sequence = parseInt(parts[3]);
-                
-                if (isNaN(lat) || isNaN(lon) || isNaN(sequence)) continue;
-                
-                if (!shapes[shapeId]) {
-                    shapes[shapeId] = [];
-                }
-                
-                shapes[shapeId].push({ lat, lon, sequence });
-            }
-            
-            Object.keys(shapes).forEach(shapeId => {
-                shapes[shapeId].sort((a, b) => a.sequence - b.sequence);
-            });
-            
-            return shapes;
-        }
 
-        async function loadShapes() {
-            try {
-                const shapesResponse = await fetch('/api/shapes.txt');
-                const shapesText = await shapesResponse.text();
-                shapesData = parseShapesFile(shapesText);
-                
-                const shapesGradskeResponse = await fetch('/api/shapes_gradske.txt');
-                const shapesGradskeText = await shapesGradskeResponse.text();
-                shapesGradskeData = parseShapesFile(shapesGradskeText);
-                
-                console.log('✅ Shapes učitani:', Object.keys(shapesData).length, '+', Object.keys(shapesGradskeData).length);
-            } catch (error) {
-                console.error('❌ Greška pri učitavanju shapes:', error);
-            }
-        }
-
-        function haversineDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
-        }
-
-        function findNearestPointOnShape(lat, lon, shape) {
-            let minDistance = Infinity;
-            let nearestIndex = 0;
-            
-            for (let i = 0; i < shape.length; i++) {
-                const distance = haversineDistance(lat, lon, shape[i].lat, shape[i].lon);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestIndex = i;
-                }
-            }
-            
-            return nearestIndex;
-        }
-
-        function calculateRouteDistance(pos1, pos2, shape) {
-            if (!shape || shape.length === 0) {
-                return haversineDistance(pos1.lat, pos1.lon, pos2.lat, pos2.lon);
-            }
-            
-            const idx1 = findNearestPointOnShape(pos1.lat, pos1.lon, shape);
-            const idx2 = findNearestPointOnShape(pos2.lat, pos2.lon, shape);
-            
-            if (idx2 < idx1) {
-                let distance = 0;
-                for (let i = idx1; i < shape.length - 1; i++) {
-                    distance += haversineDistance(
-                        shape[i].lat, shape[i].lon,
-                        shape[i + 1].lat, shape[i + 1].lon
-                    );
-                }
-                for (let i = 0; i < idx2; i++) {
-                    distance += haversineDistance(
-                        shape[i].lat, shape[i].lon,
-                        shape[i + 1].lat, shape[i + 1].lon
-                    );
-                }
-                return distance;
-            }
-            
-            let distance = 0;
-            for (let i = idx1; i < idx2; i++) {
-                distance += haversineDistance(
-                    shape[i].lat, shape[i].lon,
-                    shape[i + 1].lat, shape[i + 1].lon
-                );
-            }
-            
-            return distance;
-        }
-
-        function getShapeForLine(lineNumber) {
-            const mappingKey = Object.keys(routeMappingData).find(key => {
-                const leftNumber = key.split(':')[0].trim();
-                return leftNumber === lineNumber.toString();
-            });
-            
-            if (!mappingKey) {
-                return null;
-            }
-            
-            const shapeId = routeMappingData[mappingKey];
-            
-            if (shapesData[shapeId]) return shapesData[shapeId];
-            if (shapesGradskeData[shapeId]) return shapesGradskeData[shapeId];
-            
-            return null;
-        }
-
-        function calculateVehicleSpeed(vehicleId, currentPosition, lineNumber) {
-            const now = Date.now();
-            
-            if (!vehicleHistory[vehicleId]) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const prevData = vehicleHistory[vehicleId];
-            const timeDiff = (now - prevData.timestamp) / 1000;
-            
-            if (timeDiff < 1) {
-                return prevData.speed;
-            }
-            
-            if (timeDiff > 300) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const shape = getShapeForLine(lineNumber);
-            
-            let distance;
-            if (shape && shape.length > 0) {
-                distance = calculateRouteDistance(prevData.position, currentPosition, shape);
-            } else {
-                distance = haversineDistance(
-                    prevData.position.lat, prevData.position.lon,
-                    currentPosition.lat, currentPosition.lon
-                );
-            }
-            
-            if (distance > 5000) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const speedMps = distance / timeDiff;
-            const speedKmh = Math.round(speedMps * 3.6 * 10) / 10;
-            
-            vehicleHistory[vehicleId] = {
-                position: currentPosition,
-                timestamp: now,
-                lineNumber: lineNumber,
-                speed: speedKmh
-            };
-            
-            return speedKmh;
-        }
-
-        // ========== ORIGINALNE FUNKCIJE ==========
         
         function normalizeStopId(stopId) {
             if (typeof stopId === 'string' && stopId.length === 5 && stopId.startsWith('2')) {
@@ -378,20 +188,25 @@ export default function handler(req, res) {
             const normalizedId = normalizeRouteId(routeId);
             return routeNamesMap[normalizedId] || normalizedId;
         }
+
+
         
         function findRouteId(userInput) {
             const normalized = userInput.trim().toUpperCase();
             
+
             if (routeNamesMap[normalized]) {
                 return normalized;
             }
             
+
             for (const [apiId, displayName] of Object.entries(routeNamesMap)) {
                 if (displayName.toUpperCase() === normalized) {
                     return apiId;
                 }
             }
             
+
             const normalizedInput = normalizeRouteId(normalized);
             if (routeNamesMap[normalizedInput]) {
                 return normalizedInput;
@@ -399,30 +214,41 @@ export default function handler(req, res) {
             
             return null;
         }
+
+
         
         async function loadStations() {
             try {
                 const response = await fetch('/api/stations');
                 if (!response.ok) throw new Error("Greška pri učitavanju stanica");
                 stationsMap = await response.json();
-                console.log(\`✅ Učitano stanica: \${Object.keys(stationsMap).length}\`);
+                console.log(\` Učitano stanica: \${Object.keys(stationsMap).length}\`);
             } catch (error) {
-                console.error("❌ Greška pri učitavanju stanica:", error);
+                console.error(" Greška pri učitavanju stanica:", error);
             }
         }
+
+        loadStations();
+
+
         
         async function loadRouteNames() {
             try {
                 const response = await fetch('/route-mapping.json');
                 if (!response.ok) throw new Error("Greška pri učitavanju naziva linija");
-                routeMappingData = await response.json();
-                routeNamesMap = routeMappingData;
+                const routeMapping = await response.json();
                 
-                console.log("✅ Učitano naziva linija:", Object.keys(routeNamesMap).length);
+                console.log("Učitano naziva linija:", Object.keys(routeMapping).length);
+                
+                routeNamesMap = routeMapping;
             } catch (error) {
-                console.error("❌ Greška pri učitavanju naziva linija:", error);
+                console.error("Greška pri učitavanju naziva linija:", error);
             }
         }
+
+        loadRouteNames();
+ 
+
  
         async function osveziPodatke() {
             if (izabraneLinije.length === 0) {
@@ -436,6 +262,7 @@ export default function handler(req, res) {
             document.getElementById('statusText').style.color = "#e67e22";
  
             try {
+
                 const response = await fetch('/api/vehicles', { 
                     method: 'GET',
                     cache: 'no-store',
@@ -450,6 +277,7 @@ export default function handler(req, res) {
                 const data = await response.json();
  
                 if (data && data.vehicles) {
+
                     const vehicleDestinations = {};
                     data.tripUpdates.forEach(update => {
                         vehicleDestinations[update.vehicleId] = update.destination;
@@ -473,11 +301,13 @@ export default function handler(req, res) {
             busLayer.clearLayers();
             destinationLayer.clearLayers();
  
+           
             const vozila = vehicles.filter(v => {
                 const routeId = normalizeRouteId(v.routeId);
                 return izabraneLinije.includes(routeId);
             });
 
+  
             let destinations = new Set();
             let destinationInfo = {};
  
@@ -486,6 +316,7 @@ export default function handler(req, res) {
                 const vehicleId = v.id;
                 
                 const destId = vehicleDestinations[vehicleId] || "Unknown";
+                
                 const normalizedId = normalizeStopId(destId);
                 const uniqueDirKey = \`\${route}_\${destId}\`;
                 
@@ -502,6 +333,7 @@ export default function handler(req, res) {
                 };
             });
 
+     
             destinations.forEach(destId => {
                 const info = destinationInfo[destId];
                 const station = stationsMap[info.normalizedId];
@@ -533,6 +365,7 @@ export default function handler(req, res) {
                 }
             });
  
+
             vozila.forEach(v => {
                 const id = v.id;
                 const label = v.label;
@@ -550,8 +383,6 @@ export default function handler(req, res) {
                 const uniqueDirKey = \`\${route}_\${destId}\`;
                 const color = directionColorMap[uniqueDirKey];
 
-                // IZRAČUNAJ BRZINU
-                const speed = calculateVehicleSpeed(id, { lat, lon }, route);
  
                 let rotation = 0;
                 let hasAngle = false;
@@ -581,14 +412,6 @@ export default function handler(req, res) {
                     iconSize: [50, 56],
                     iconAnchor: [25, 28]
                 });
-
-                // DODAJ BRZINU U POPUP
-                let speedText = '';
-                if (speed !== null && speed !== undefined && speed > 0) {
-                    speedText = \`<div class="popup-row"><span class="popup-label">Prosečna brzina:</span> <b style="color: #2980b9;">\${speed} km/h</b></div>\`;
-                } else {
-                    speedText = \`<div class="popup-row"><span class="popup-label">Brzina:</span> <span style="color: #95a5a6;">Računanje...</span></div>\`;
-                }
  
                 const popupContent = \`
                     <div class="popup-content">
@@ -597,7 +420,6 @@ export default function handler(req, res) {
                         <hr style="margin: 5px 0; border-color:#eee;">
                         <div class="popup-row"><span class="popup-label">Polazak:</span> <b>\${startTime}</b></div>
                         <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:\${color}; font-weight:bold;">\${destName}</span></div>
-                        \${speedText}
                     </div>
                 \`;
  
@@ -615,6 +437,8 @@ export default function handler(req, res) {
             return brng;
         }
  
+
+ 
         function dodajLiniju() {
             const input = document.getElementById('lineInput');
             const val = input.value.trim();
@@ -625,6 +449,7 @@ export default function handler(req, res) {
                 return; 
             }
             
+
             const routeId = findRouteId(val);
             if (!routeId) {
                 alert(\`Linija "\${val}" nije pronađena! Pokušaj sa drugim nazivom.\`);
@@ -683,16 +508,6 @@ export default function handler(req, res) {
         }
  
         function handleEnter(e) { if (e.key === 'Enter') dodajLiniju(); }
-
-        // INICIJALIZACIJA
-        async function init() {
-            await loadStations();
-            await loadRouteNames();
-            await loadShapes();
-            console.log('✅ Aplikacija inicijalizovana');
-        }
-
-        init();
  
     </script>
 </body>
