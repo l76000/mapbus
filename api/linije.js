@@ -313,7 +313,7 @@ export default function handler(req, res) {
             return routeId;
         }
 
-        function drawAllRoutes() {
+       function drawAllRoutes(shapeToColorMap = {}) {
             routeLayer.clearLayers();
             
             if (izabraneLinije.length === 0) return;
@@ -323,14 +323,6 @@ export default function handler(req, res) {
             izabraneLinije.forEach(routeId => {
                 const paddedRouteId = padRouteId(routeId);
                 
-                // Pronađi sve boje koje se koriste za ovaj route
-                let routeColors = [];
-                for (let dirKey in directionColorMap) {
-                    if (dirKey.startsWith(routeId + '_')) {
-                        routeColors.push(directionColorMap[dirKey]);
-                    }
-                }
-                
                 // Pronađi sve shape-ove za ovaj route
                 let matchingShapes = [];
                 for (let shapeKey in shapesData) {
@@ -339,46 +331,41 @@ export default function handler(req, res) {
                     }
                 }
                 
-                // Grupiši shape-ove po direction letter (A, B, itd.)
-                let shapesByLetter = {};
+                console.log(`Route ${routeId}: found ${matchingShapes.length} shapes`);
+                
+                // Nacrtaj svaki shape sa odgovarajućom bojom
                 matchingShapes.forEach(shapeKey => {
-                    // Extract direction letter from shape key (e.g., "direction_A")
-                    const match = shapeKey.match(/direction_([A-Z])/);
-                    if (match) {
-                        const letter = match[1];
-                        if (!shapesByLetter[letter]) {
-                            shapesByLetter[letter] = [];
-                        }
-                        shapesByLetter[letter].push(shapeKey);
-                    }
-                });
-                
-                console.log(\`Route \${routeId}: found colors\`, routeColors);
-                console.log(\`Route \${routeId}: shapes by direction\`, shapesByLetter);
-                
-                // Dodeli boje svakom smeru (A, B, C...)
-                const directionLetters = Object.keys(shapesByLetter).sort();
-                
-                directionLetters.forEach((letter, index) => {
-                    const shapeColor = routeColors[index] || routeColors[0] || '#95a5a6';
+                    const shapePoints = shapesData[shapeKey];
                     
-                    shapesByLetter[letter].forEach(shapeKey => {
-                        const shapePoints = shapesData[shapeKey];
-                        
-                        if (!shapePoints || shapePoints.length === 0) return;
-                        
-                        const latLngs = shapePoints.map(point => [point.lat, point.lon]);
-                        
-                        const polyline = L.polyline(latLngs, {
-                            color: shapeColor,
-                            weight: 4,
-                            opacity: 0.6,
-                            smoothFactor: 1
-                        });
-                        
-                        polyline.addTo(routeLayer);
-                        allBounds.push(polyline.getBounds());
+                    if (!shapePoints || shapePoints.length === 0) return;
+                    
+                    // Pronađi boju za ovaj shape
+                    let shapeColor = shapeToColorMap[shapeKey];
+                    
+                    // Ako nema u prosleđenoj mapi, koristi prvu dostupnu boju za ovaj route
+                    if (!shapeColor) {
+                        for (let dirKey in directionColorMap) {
+                            if (dirKey.startsWith(routeId + '_')) {
+                                shapeColor = directionColorMap[dirKey];
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Fallback boja
+                    if (!shapeColor) shapeColor = '#95a5a6';
+                    
+                    const latLngs = shapePoints.map(point => [point.lat, point.lon]);
+                    
+                    const polyline = L.polyline(latLngs, {
+                        color: shapeColor,
+                        weight: 4,
+                        opacity: 0.6,
+                        smoothFactor: 1
                     });
+                    
+                    polyline.addTo(routeLayer);
+                    allBounds.push(polyline.getBounds());
                 });
             });
             
