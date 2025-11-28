@@ -17,10 +17,10 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-    // PROMENA: Koristi Sheet1 umesto BazaVozila
+    // Čitaj sve kolone A do F (dodato Datum u F kolonu)
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Sheet1!A2:E', // Preskoči header red
+      range: 'Sheet1!A2:F',
     });
 
     const rows = response.data.values;
@@ -38,14 +38,15 @@ export default async function handler(req, res) {
       linija: row[1] || '',
       polazak: row[2] || '',
       smer: row[3] || '',
-      timestamp: row[4] || ''
+      timestamp: row[4] || '',
+      datum: row[5] || ''  // Nova kolona za datum
     }));
 
     res.status(200).json({ 
       success: true, 
       vehicles: vehicles,
       count: vehicles.length,
-      lastUpdate: vehicles[0]?.timestamp || null
+      lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null
     });
 
   } catch (error) {
