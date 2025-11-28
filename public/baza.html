@@ -1,210 +1,408 @@
-import { google } from 'googleapis';
-
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
-  console.log('=== Google Sheets Update Request ===');
-  
-  try {
-    const { vehicles } = req.body;
-
-    if (!vehicles || !Array.isArray(vehicles)) {
-      console.error('Invalid data format');
-      return res.status(400).json({ error: 'Invalid data format' });
-    }
-
-    console.log(`Received ${vehicles.length} vehicles`);
-
-    const clientEmail = process.env.GOOGLE_SHEETS_CLIENT_EMAIL;
-    const privateKey = process.env.GOOGLE_SHEETS_PRIVATE_KEY;
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
-    if (!clientEmail || !privateKey || !spreadsheetId) {
-      return res.status(500).json({ 
-        error: 'Missing environment variables'
-      });
-    }
-
-    let formattedPrivateKey = privateKey;
-    if (privateKey.includes('\\n')) {
-      formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
-    }
-
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: clientEmail,
-        private_key: formattedPrivateKey,
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth });
-
-    // Kreiraj timestamp za datum i vreme
-    const timestamp = new Date().toLocaleString('sr-RS', { 
-      timeZone: 'Europe/Belgrade',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-
-    const sheetName = 'Sheet1';
-
-    // Prvo pročitaj postojeće podatke
-    let existingData = [];
-    try {
-      const readResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${sheetName}!A2:F`,
-      });
-      existingData = readResponse.data.values || [];
-      console.log(`Found ${existingData.length} existing rows`);
-    } catch (readError) {
-      console.log('No existing data or read error:', readError.message);
-    }
-
-    // Kreiraj mapu postojećih vozila (vozilo -> row index)
-    const existingVehicles = new Map();
-    existingData.forEach((row, index) => {
-      if (row[0]) { // Ako postoji broj vozila
-        existingVehicles.set(row[0], {
-          rowIndex: index + 2, // +2 jer počinje od A2
-          data: row
-        });
-      }
-    });
-
-    let newCount = 0;
-    let updateCount = 0;
-
-    // Proces svako vozilo
-    for (const v of vehicles) {
-      const vehicleLabel = v.vehicleLabel || '';
-      const rowData = [
-        vehicleLabel,
-        v.routeDisplayName || '',
-        v.startTime || '',
-        v.destName || '',
-        timestamp,  // Kolona E - vreme upisa
-        timestamp.split(',')[0].trim()  // Kolona F - samo datum
-      ];
-
-      if (existingVehicles.has(vehicleLabel)) {
-        // AŽURIRAJ postojeći red
-        const existingRow = existingVehicles.get(vehicleLabel);
-        try {
-          await sheets.spreadsheets.values.update({
-            spreadsheetId,
-            range: `${sheetName}!A${existingRow.rowIndex}:F${existingRow.rowIndex}`,
-            valueInputOption: 'RAW',
-            resource: {
-              values: [rowData]
-            }
-          });
-          updateCount++;
-          console.log(`Updated vehicle ${vehicleLabel} at row ${existingRow.rowIndex}`);
-        } catch (updateError) {
-          console.error(`Error updating ${vehicleLabel}:`, updateError.message);
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Baza Vozila</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
         }
-      } else {
-        // DODAJ novi red
-        try {
-          await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: `${sheetName}!A2`,
-            valueInputOption: 'RAW',
-            insertDataOption: 'INSERT_ROWS',
-            resource: {
-              values: [rowData]
-            }
-          });
-          newCount++;
-          console.log(`Added new vehicle ${vehicleLabel}`);
-          
-          // Dodaj u mapu da ne dodamo duplikat u istom batch-u
-          existingVehicles.set(vehicleLabel, { rowIndex: -1, data: rowData });
-        } catch (appendError) {
-          console.error(`Error adding ${vehicleLabel}:`, appendError.message);
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
         }
-      }
-    }
 
-    // VAŽNO: Sortiraj Sheet NAKON SVAKOG upisa (ne samo kada ima novih)
-    try {
-      // Prvo dobavi sheet ID
-      const sheetMetadata = await sheets.spreadsheets.get({
-        spreadsheetId,
-      });
-      
-      const sheet = sheetMetadata.data.sheets.find(
-        s => s.properties.title === sheetName
-      );
-      
-      if (!sheet) {
-        throw new Error(`Sheet "${sheetName}" not found`);
-      }
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
 
-      const sheetId = sheet.properties.sheetId;
+        .header {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
 
-      // Sortiraj po koloni A (vozilo) - numerički
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        resource: {
-          requests: [
-            {
-              sortRange: {
-                range: {
-                  sheetId: sheetId,
-                  startRowIndex: 1, // Počinje od reda 2 (index 1)
-                  startColumnIndex: 0,
-                  endColumnIndex: 6, // Kolone A do F
-                },
-                sortSpecs: [
-                  {
-                    dimensionIndex: 0, // Sortiraj po koloni A (vozilo)
-                    sortOrder: 'ASCENDING',
-                  },
-                ],
-              },
-            },
-          ],
-        },
-      });
-      console.log('✓ Sheet sortiran po broju vozila');
-    } catch (sortError) {
-      console.error('✗ Greška pri sortiranju:', sortError.message);
-    }
+        h1 {
+            color: #333;
+            font-size: 28px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
 
-    console.log('=== Update Complete ===');
+        .stats {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
 
-    res.status(200).json({ 
-      success: true, 
-      newVehicles: newCount,
-      updatedVehicles: updateCount,
-      totalProcessed: vehicles.length,
-      timestamp,
-      sheetUsed: sheetName,
-      sorted: true
-    });
+        .stat-box {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            text-align: center;
+            min-width: 120px;
+        }
 
-  } catch (error) {
-    console.error('Unexpected error:', error);
-    res.status(500).json({ 
-      error: 'Unexpected error',
-      details: error.message
-    });
-  }
-}
+        .stat-number {
+            font-size: 32px;
+            font-weight: bold;
+            display: block;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        .controls {
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .search-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        label {
+            font-weight: 600;
+            color: #555;
+            font-size: 13px;
+        }
+
+        input {
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: #1e3c72;
+            box-shadow: 0 0 0 3px rgba(30, 60, 114, 0.1);
+        }
+
+        .table-container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        thead {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+        }
+
+        th {
+            padding: 16px 20px;
+            text-align: left;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        th:nth-child(1) { width: 10%; } /* VOZILO */
+        th:nth-child(2) { width: 10%; } /* LINIJA */
+        th:nth-child(3) { width: 12%; } /* POLAZAK */
+        th:nth-child(4) { width: 48%; } /* SMER */
+        th:nth-child(5) { width: 20%; } /* DATUM */
+
+        td {
+            padding: 16px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            color: #333;
+            font-size: 15px;
+            word-wrap: break-word;
+        }
+
+        tbody tr {
+            transition: background 0.2s;
+        }
+
+        tbody tr:hover {
+            background: #f0f4ff;
+        }
+
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 16px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #1e3c72;
+            font-size: 18px;
+        }
+
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+
+        .refresh-btn {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(30, 60, 114, 0.4);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+
+        .last-update {
+            color: #666;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        @media (max-width: 768px) {
+            .header {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+
+            .controls {
+                grid-template-columns: 1fr;
+            }
+
+            table {
+                font-size: 13px;
+                table-layout: auto;
+            }
+
+            th, td {
+                padding: 12px 10px;
+            }
+
+            th:nth-child(1) { width: auto; }
+            th:nth-child(2) { width: auto; }
+            th:nth-child(3) { width: auto; }
+            th:nth-child(4) { width: auto; }
+            th:nth-child(5) { width: auto; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Baza Vozila</h1>
+                <div class="last-update" id="lastUpdate">
+                    Učitavam podatke...
+                </div>
+            </div>
+            <div class="stats">
+                <div class="stat-box">
+                    <span class="stat-number" id="totalVehicles">-</span>
+                    <span class="stat-label">Ukupno vozila</span>
+                </div>
+                <div class="stat-box">
+                    <span class="stat-number" id="totalRoutes">-</span>
+                    <span class="stat-label">Linija</span>
+                </div>
+            </div>
+
+        </div>
+
+        <div class="controls">
+            <div class="search-group">
+                <label for="searchVehicle">Pretraži vozilo:</label>
+                <input type="text" id="searchVehicle" placeholder="Npr. P70618" oninput="filterTable()">
+            </div>
+            <div class="search-group">
+                <label for="searchRoute">Pretraži liniju:</label>
+                <input type="text" id="searchRoute" placeholder="Npr. 601" oninput="filterTable()">
+            </div>
+            <div class="search-group">
+                <label for="searchDeparture">Pretraži polazak:</label>
+                <input type="text" id="searchDeparture" placeholder="Npr. 12:31" oninput="filterTable()">
+            </div>
+            <div class="search-group">
+                <label for="searchDirection">Pretraži smer:</label>
+                <input type="text" id="searchDirection" placeholder="Npr. Surčin" oninput="filterTable()">
+            </div>
+            <div class="search-group">
+                <label for="searchDate">Pretraži datum:</label>
+                <input type="text" id="searchDate" placeholder="Npr. 28.11.2025." oninput="filterTable()">
+            </div>
+        </div>
+
+        <div class="table-container">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Vozilo</th>
+                        <th>Linija</th>
+                        <th>Polazak</th>
+                        <th>Smer (ide ka)</th>
+                        <th>Datum</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    <tr>
+                        <td colspan="5" class="loading">Učitavam podatke</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        let allData = [];
+
+        async function loadData() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '<tr><td colspan="5" class="loading">Učitavam podatke</td></tr>';
+
+            try {
+                const response = await fetch('/api/get-sheet-data');
+                const data = await response.json();
+
+                if (data.success && data.vehicles) {
+                    allData = data.vehicles;
+                    
+                    // Sortiraj po broju vozila (numerički)
+                    allData.sort((a, b) => {
+                        const numA = parseInt(a.vozilo) || 0;
+                        const numB = parseInt(b.vozilo) || 0;
+                        return numA - numB;
+                    });
+
+                    renderTable(allData);
+                    updateStats(allData);
+                    
+                    const lastUpdate = document.getElementById('lastUpdate');
+                    const time = new Date().toLocaleString('sr-RS', { 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        second: '2-digit'
+                    });
+                    lastUpdate.innerHTML = ``;
+                } else {
+                    tbody.innerHTML = '<tr><td colspan="5" class="no-data">Nema podataka</td></tr>';
+                }
+            } catch (error) {
+                console.error('Greška:', error);
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">❌ Greška pri učitavanju podataka</td></tr>';
+            }
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('tableBody');
+            
+            if (data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" class="no-data">Nema rezultata</td></tr>';
+                return;
+            }
+
+            // Sortiranje pre prikaza
+            const sortedData = [...data].sort((a, b) => {
+                const numA = parseInt(a.vozilo) || 0;
+                const numB = parseInt(b.vozilo) || 0;
+                return numA - numB;
+            });
+
+            tbody.innerHTML = sortedData.map(vehicle => `
+                <tr>
+                    <td><strong>${vehicle.vozilo}</strong></td>
+                    <td>${vehicle.linija}</td>
+                    <td>${vehicle.polazak}</td>
+                    <td>${vehicle.smer}</td>
+                    <td><small>${vehicle.datum}</small></td>
+                </tr>
+            `).join('');
+        }
+
+        function filterTable() {
+            const vehicleSearch = document.getElementById('searchVehicle').value.toLowerCase();
+            const routeSearch = document.getElementById('searchRoute').value.toLowerCase();
+            const departureSearch = document.getElementById('searchDeparture').value.toLowerCase();
+            const directionSearch = document.getElementById('searchDirection').value.toLowerCase();
+            const dateSearch = document.getElementById('searchDate').value.toLowerCase();
+
+            const filtered = allData.filter(vehicle => {
+                return (
+                    vehicle.vozilo.toLowerCase().includes(vehicleSearch) &&
+                    vehicle.linija.toLowerCase().includes(routeSearch) &&
+                    vehicle.polazak.toLowerCase().includes(departureSearch) &&
+                    vehicle.smer.toLowerCase().includes(directionSearch) &&
+                    vehicle.datum.toLowerCase().includes(dateSearch)
+                );
+            });
+
+            renderTable(filtered);
+            updateStats(filtered);
+        }
+
+        function updateStats(data) {
+            document.getElementById('totalVehicles').textContent = data.length;
+            
+            const uniqueRoutes = new Set(data.map(v => v.linija));
+            document.getElementById('totalRoutes').textContent = uniqueRoutes.size;
+        }
+
+        // Učitaj podatke pri startovanju
+        loadData();
+
+
+    </script>
+</body>
+</html>
