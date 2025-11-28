@@ -1,4 +1,8 @@
 {
   "type": "module",
-  "dependencies": {}
+  {
+  "dependencies": {
+    "googleapis": "^128.0.0"
+  }
+}
 }
