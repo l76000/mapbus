@@ -313,8 +313,6 @@ export default function handler(req, res) {
             return routeId;
         }
 
-// Dodaj ovu helper funkciju negde u script tag (npr. posle calculateBearing funkcije)
-
 function calculateDistance(lat1, lon1, lat2, lon2) {
     const R = 6371e3; // Radijus Zemlje u metrima
     const φ1 = lat1 * Math.PI / 180;
