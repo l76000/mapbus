@@ -158,6 +158,12 @@ export default function handler(req, res) {
  
 
         let routeNamesMap = {};
+
+        // NEW: Store shapes data and vehicle info
+        let shapesData = {};
+        let vehicleShapeMap = {};
+        let allVehicles = {};
+        let activeRouteLayer = null;
  
 
         const colors = [
@@ -222,9 +228,9 @@ export default function handler(req, res) {
                 const response = await fetch('/api/stations');
                 if (!response.ok) throw new Error("Greška pri učitavanju stanica");
                 stationsMap = await response.json();
-                console.log(\` Učitano stanica: \${Object.keys(stationsMap).length}\`);
+                console.log(\`✓ Učitano stanica: \${Object.keys(stationsMap).length}\`);
             } catch (error) {
-                console.error(" Greška pri učitavanju stanica:", error);
+                console.error("❌ Greška pri učitavanju stanica:", error);
             }
         }
 
@@ -238,15 +244,130 @@ export default function handler(req, res) {
                 if (!response.ok) throw new Error("Greška pri učitavanju naziva linija");
                 const routeMapping = await response.json();
                 
-                console.log("Učitano naziva linija:", Object.keys(routeMapping).length);
+                console.log("✓ Učitano naziva linija:", Object.keys(routeMapping).length);
                 
                 routeNamesMap = routeMapping;
             } catch (error) {
-                console.error("Greška pri učitavanju naziva linija:", error);
+                console.error("❌ Greška pri učitavanju naziva linija:", error);
             }
         }
 
         loadRouteNames();
+
+
+        // NEW: Load shapes data
+        async function loadShapes() {
+            try {
+                const [shapesResponse, shapesGradskeResponse] = await Promise.all([
+                    fetch('/api/shapes.txt'),
+                    fetch('/api/shapes_gradske.txt')
+                ]);
+                
+                const shapesText = await shapesResponse.text();
+                const shapesGradskeText = await shapesGradskeResponse.text();
+                
+                parseShapesCSV(shapesText);
+                parseShapesCSV(shapesGradskeText);
+                
+                console.log('✓ Shapes loaded:', Object.keys(shapesData).length);
+            } catch (error) {
+                console.error('❌ Error loading shapes:', error);
+            }
+        }
+
+        function parseShapesCSV(csvText) {
+            const lines = csvText.split('\\n');
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const parts = line.split(',');
+                if (parts.length < 4) continue;
+                
+                const shapeId = parts[0];
+                const lat = parseFloat(parts[1]);
+                const lon = parseFloat(parts[2]);
+                const sequence = parseInt(parts[3]);
+                
+                if (!shapesData[shapeId]) {
+                    shapesData[shapeId] = [];
+                }
+                
+                shapesData[shapeId].push({
+                    lat: lat,
+                    lon: lon,
+                    sequence: sequence
+                });
+            }
+            
+            for (let shapeId in shapesData) {
+                shapesData[shapeId].sort((a, b) => a.sequence - b.sequence);
+            }
+        }
+
+        loadShapes();
+
+        // NEW: Show route for vehicle
+        function showRouteForVehicle(routeId, vehicleId, color) {
+            if (activeRouteLayer) {
+                map.removeLayer(activeRouteLayer);
+                activeRouteLayer = null;
+            }
+            
+            const shapeIdFromVehicle = vehicleShapeMap[vehicleId];
+            
+            console.log('Vehicle ID:', vehicleId);
+            console.log('Route ID:', routeId);
+            console.log('Shape ID from vehicle:', shapeIdFromVehicle);
+            
+            let matchingShapes = [];
+            
+            for (let shapeKey in shapesData) {
+                if (shapeKey.startsWith(routeId + '_')) {
+                    matchingShapes.push(shapeKey);
+                }
+            }
+            
+            console.log('Matching shapes for route', routeId, ':', matchingShapes);
+            
+            if (matchingShapes.length === 0) {
+                console.log('No shapes found for route:', routeId);
+                return;
+            }
+            
+            let selectedShape = null;
+            if (shapeIdFromVehicle && shapesData[shapeIdFromVehicle]) {
+                selectedShape = shapeIdFromVehicle;
+            } else {
+                selectedShape = matchingShapes[0];
+            }
+            
+            const shapePoints = shapesData[selectedShape];
+            
+            if (!shapePoints || shapePoints.length === 0) {
+                console.log('No shape points found for:', selectedShape);
+                return;
+            }
+            
+            const latLngs = shapePoints.map(point => [point.lat, point.lon]);
+            
+            const polyline = L.polyline(latLngs, {
+                color: color,
+                weight: 4,
+                opacity: 0.7,
+                smoothFactor: 1
+            });
+            
+            polyline.addTo(map);
+            activeRouteLayer = polyline;
+            
+            map.fitBounds(polyline.getBounds(), {
+                padding: [50, 50]
+            });
+            
+            console.log('✓ Route displayed:', selectedShape, 'with', shapePoints.length, 'points');
+        }
  
 
  
@@ -279,8 +400,13 @@ export default function handler(req, res) {
                 if (data && data.vehicles) {
 
                     const vehicleDestinations = {};
+                    vehicleShapeMap = {}; // NEW: Reset shape map
+                    
                     data.tripUpdates.forEach(update => {
                         vehicleDestinations[update.vehicleId] = update.destination;
+                        if (update.shapeId) {
+                            vehicleShapeMap[update.vehicleId] = update.shapeId;
+                        }
                     });
                     
                     crtajVozila(data.vehicles, vehicleDestinations);
@@ -300,6 +426,7 @@ export default function handler(req, res) {
         function crtajVozila(vehicles, vehicleDestinations) {
             busLayer.clearLayers();
             destinationLayer.clearLayers();
+            allVehicles = {}; // NEW: Reset vehicles map
  
            
             const vozila = vehicles.filter(v => {
@@ -383,6 +510,11 @@ export default function handler(req, res) {
                 const uniqueDirKey = \`\${route}_\${destId}\`;
                 const color = directionColorMap[uniqueDirKey];
 
+                // NEW: Store vehicle info
+                allVehicles[id] = {
+                    routeId: v.routeId,
+                    color: color
+                };
  
                 let rotation = 0;
                 let hasAngle = false;
@@ -423,9 +555,15 @@ export default function handler(req, res) {
                     </div>
                 \`;
  
-                L.marker([lat, lon], {icon: icon})
-                    .bindPopup(popupContent)
-                    .addTo(busLayer);
+                const marker = L.marker([lat, lon], {icon: icon})
+                    .bindPopup(popupContent);
+
+                // NEW: Add click event to show route
+                marker.on('click', function() {
+                    showRouteForVehicle(v.routeId, id, color);
+                });
+
+                marker.addTo(busLayer);
             });
         }
  
@@ -474,6 +612,13 @@ export default function handler(req, res) {
         function ukloniLiniju(linija) {
             izabraneLinije = izabraneLinije.filter(l => l !== linija);
             azurirajListu();
+            
+            // NEW: Clear route when removing line
+            if (activeRouteLayer) {
+                map.removeLayer(activeRouteLayer);
+                activeRouteLayer = null;
+            }
+            
             osveziPodatke();
         }
  
