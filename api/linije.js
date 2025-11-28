@@ -331,7 +331,7 @@ export default function handler(req, res) {
                     }
                 }
                 
-                console.log(\`Route \${routeId}: found \${matchingShapes.length} shapes\`);
+                console.log(`Route ${routeId}: found ${matchingShapes.length} shapes`);
                 
                 // Nacrtaj svaki shape sa odgovarajućom bojom
                 matchingShapes.forEach(shapeKey => {
