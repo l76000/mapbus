@@ -307,6 +307,16 @@ export default function handler(req, res) {
 
         loadShapes();
 
+       // Helper function to pad route ID with zeros (for shape matching)
+        function padRouteId(routeId) {
+            // Only pad if it's a simple numeric ID with 1-3 digits
+            const numericId = parseInt(routeId, 10);
+            if (!isNaN(numericId) && routeId === numericId.toString() && routeId.length <= 3) {
+                return numericId.toString().padStart(5, '0');
+            }
+            return routeId;
+        }
+
         // NEW: Show all routes for selected lines
         function drawAllRoutes() {
             routeLayer.clearLayers();
@@ -316,33 +326,53 @@ export default function handler(req, res) {
             let allBounds = [];
             
             izabraneLinije.forEach(routeId => {
-                // Find all shapes for this route
+                // Try both original and padded route ID
+                const paddedRouteId = padRouteId(routeId);
                 let matchingShapes = [];
                 
                 for (let shapeKey in shapesData) {
-                    if (shapeKey.startsWith(routeId + '_')) {
+                    if (shapeKey.startsWith(routeId + '_') || shapeKey.startsWith(paddedRouteId + '_')) {
                         matchingShapes.push(shapeKey);
                     }
                 }
                 
-                console.log(\`Route \${routeId}: found \${matchingShapes.length} shapes\`);
+                console.log(\`Route \${routeId} (padded: \${paddedRouteId}): found \${matchingShapes.length} shapes\`);
                 
-                // Draw each shape (direction) with different opacity
-                matchingShapes.forEach((shapeKey, index) => {
+                // Group shapes by direction (last part of destination)
+                matchingShapes.forEach((shapeKey) => {
                     const shapePoints = shapesData[shapeKey];
                     
                     if (!shapePoints || shapePoints.length === 0) return;
                     
                     const latLngs = shapePoints.map(point => [point.lat, point.lon]);
                     
-                    // Use different colors/styles for different directions
-                    const baseColor = '#2980b9';
-                    const opacity = 0.6 - (index * 0.15); // Different opacity for each direction
+                    // Extract destination from shape key (format: routeId_destination)
+                    const shapeParts = shapeKey.split('_');
+                    const shapeDestination = shapeParts.length > 1 ? shapeParts[1] : '';
+                    
+                    // Find matching direction color from directionColorMap
+                    const uniqueDirKey = \`\${routeId}_\${shapeDestination}\`;
+                    let shapeColor = directionColorMap[uniqueDirKey];
+                    
+                    // If no exact match, try to find any direction for this route
+                    if (!shapeColor) {
+                        for (let dirKey in directionColorMap) {
+                            if (dirKey.startsWith(routeId + '_')) {
+                                shapeColor = directionColorMap[dirKey];
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Fallback to default blue if no color found
+                    if (!shapeColor) {
+                        shapeColor = '#2980b9';
+                    }
                     
                     const polyline = L.polyline(latLngs, {
-                        color: baseColor,
+                        color: shapeColor,
                         weight: 4,
-                        opacity: Math.max(opacity, 0.3),
+                        opacity: 0.6,
                         smoothFactor: 1
                     });
                     
