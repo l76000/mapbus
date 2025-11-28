@@ -797,7 +797,8 @@ export default function handler(req, res) {
                     clearInterval(countdownId);
                 }
             }, 1000);
-            
+
+await azurirajGoogleSheet();
             timerId = setTimeout(() => {
                 osveziPodatke();
             }, seconds * 1000);
