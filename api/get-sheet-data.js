@@ -17,40 +17,11 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-    // Generiši ime sheet-a za današnji datum
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('sr-RS', {
-      timeZone: 'Europe/Belgrade',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit'
-    }).split('.').reverse().join('-').replace(/\.$/, '');
-
-    const sheetName = dateStr;
+    // Uvek čitaj iz glavnog sheet-a "Baza"
+    const sheetName = 'Baza';
     console.log(`Reading from sheet: ${sheetName}`);
 
-    // Proveri da li sheet postoji
-    let sheetExists = false;
-    try {
-      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-      sheetExists = spreadsheet.data.sheets.some(
-        s => s.properties.title === sheetName
-      );
-    } catch (error) {
-      console.error('Error checking sheets:', error.message);
-    }
-
-    if (!sheetExists) {
-      console.log(`Sheet "${sheetName}" does not exist yet`);
-      return res.status(200).json({ 
-        success: true, 
-        vehicles: [],
-        count: 0,
-        message: `Nema podataka za ${dateStr}`
-      });
-    }
-
-    // Čitaj podatke iz današnjeg sheet-a
+    // Čitaj podatke
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${sheetName}!A2:F`,
