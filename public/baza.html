@@ -436,18 +436,38 @@
             const directionSearch = document.getElementById('searchDirection').value.toLowerCase();
 
             const filtered = allData.filter(vehicle => {
-                return (
-                    vehicle.vozilo.toLowerCase().includes(vehicleSearch) &&
-                    vehicle.linija.toLowerCase().includes(routeSearch) &&
-                    vehicle.polazak.toLowerCase().includes(departureSearch) &&
-                    vehicle.smer.toLowerCase().includes(directionSearch)
-                );
+                const vehicleMatch = vehicle.vozilo.toLowerCase().includes(vehicleSearch);
+                const departureMatch = vehicle.polazak.toLowerCase().includes(departureSearch);
+                const directionMatch = vehicle.smer.toLowerCase().includes(directionSearch);
+                
+                // Posebna logika za liniju
+                let routeMatch = true;
+                if (routeSearch) {
+                    const linija = vehicle.linija.toLowerCase();
+                    
+                    // Ako tražimo samo broj (samo cifre)
+                    if (/^\d+$/.test(routeSearch)) {
+                        // TAČNO poklapanje - samo linija bez slova
+                        routeMatch = linija === routeSearch;
+                    } 
+                    // Ako tražimo slovo (npr. "N")
+                    else if (/^[a-z]$/i.test(routeSearch)) {
+                        // Poklapa se ako linija sadrži to slovo
+                        routeMatch = linija.includes(routeSearch);
+                    }
+                    // Ako tražimo broj sa slovom (npr. "860A")
+                    else {
+                        // Tačno poklapanje
+                        routeMatch = linija === routeSearch;
+                    }
+                }
+
+                return vehicleMatch && routeMatch && departureMatch && directionMatch;
             });
 
             renderTable(filtered);
             updateStats(filtered);
         }
-
         function updateStats(data) {
             document.getElementById('totalVehicles').textContent = data.length;
             
