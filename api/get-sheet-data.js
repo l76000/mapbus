@@ -17,10 +17,43 @@ export default async function handler(req, res) {
     const sheets = google.sheets({ version: 'v4', auth });
     const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-    // Čitaj sve kolone A do F (dodato Datum u F kolonu)
+    // Generiši ime sheet-a za današnji datum
+    const now = new Date();
+    const dateStr = now.toLocaleDateString('sr-RS', {
+      timeZone: 'Europe/Belgrade',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).split('.').reverse().join('-').replace(/\.$/, '');
+
+    const sheetName = dateStr;
+    console.log(`Reading from sheet: ${sheetName}`);
+
+    // Proveri da li sheet postoji
+    let sheetExists = false;
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+      sheetExists = spreadsheet.data.sheets.some(
+        s => s.properties.title === sheetName
+      );
+    } catch (error) {
+      console.error('Error checking sheets:', error.message);
+    }
+
+    if (!sheetExists) {
+      console.log(`Sheet "${sheetName}" does not exist yet`);
+      return res.status(200).json({ 
+        success: true, 
+        vehicles: [],
+        count: 0,
+        message: `Nema podataka za ${dateStr}`
+      });
+    }
+
+    // Čitaj podatke iz današnjeg sheet-a
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
-      range: 'Sheet1!A2:F',
+      range: `${sheetName}!A2:F`,
     });
 
     const rows = response.data.values;
@@ -29,7 +62,8 @@ export default async function handler(req, res) {
       return res.status(200).json({ 
         success: true, 
         vehicles: [],
-        count: 0 
+        count: 0,
+        sheetName: sheetName
       });
     }
 
@@ -39,14 +73,15 @@ export default async function handler(req, res) {
       polazak: row[2] || '',
       smer: row[3] || '',
       timestamp: row[4] || '',
-      datum: row[5] || ''  // Nova kolona za datum
+      datum: row[5] || ''
     }));
 
     res.status(200).json({ 
       success: true, 
       vehicles: vehicles,
       count: vehicles.length,
-      lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null
+      lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null,
+      sheetName: sheetName
     });
 
   } catch (error) {
