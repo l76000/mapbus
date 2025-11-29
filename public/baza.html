@@ -393,12 +393,20 @@
                 return;
             }
 
-            // UVEK sortiranje po broju vozila pre prikaza
+            // Sortiraj prema odabranoj opciji
+            const sortBy = document.getElementById('sortBy').value;
             const sortedData = [...data].sort((a, b) => {
-                // Ekstraktuj broj iz stringa (npr. P70618 -> 70618)
-                const numA = parseInt(a.vozilo.replace(/\D/g, '')) || 0;
-                const numB = parseInt(b.vozilo.replace(/\D/g, '')) || 0;
-                return numA - numB;
+                if (sortBy === 'route') {
+                    // Sortiranje po broju linije
+                    const numA = parseInt(a.linija.replace(/\D/g, '')) || 0;
+                    const numB = parseInt(b.linija.replace(/\D/g, '')) || 0;
+                    return numA - numB;
+                } else {
+                    // Sortiranje po broju vozila (default)
+                    const numA = parseInt(a.vozilo.replace(/\D/g, '')) || 0;
+                    const numB = parseInt(b.vozilo.replace(/\D/g, '')) || 0;
+                    return numA - numB;
+                }
             });
 
             tbody.innerHTML = sortedData.map(vehicle => `
