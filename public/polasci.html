@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pretraga Polazaka</title>
+    <title>Baza Linija</title>
     <style>
         * {
             margin: 0;
@@ -298,7 +298,7 @@
                     <input 
                         type="text" 
                         id="lineSearch" 
-                        placeholder="Unesite broj linije (npr. 601, 15A, E9)"
+                        placeholder="Unesite broj linije (npr. 601)"
                         onkeypress="if(event.key === 'Enter') searchLine()"
                     >
                 </div>
@@ -308,9 +308,7 @@
 
         <div id="resultsContainer" class="results-container">
             <div class="empty-state">
-                <div class="empty-state-icon">🔍</div>
                 <div class="empty-state-text">Pretražite liniju</div>
-                <div class="empty-state-subtext">Unesite broj linije i kliknite na "Pretraži"</div>
             </div>
         </div>
     </div>
@@ -322,7 +320,7 @@
             const resultsContainer = document.getElementById('resultsContainer');
 
             if (!lineNumber) {
-                alert('Molimo unesite broj linije');
+                alert('Unesite broj linije');
                 return;
             }
 
