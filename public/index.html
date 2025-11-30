@@ -93,6 +93,7 @@
             box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
             transition: all 0.3s ease;
             min-width: 250px;
+            position: relative;
         }
 
         .btn:hover {
@@ -103,6 +104,51 @@
 
         .btn:active {
             transform: translateY(-1px);
+        }
+
+        .btn-admin {
+            background: #2c3e50;
+            color: white;
+            display: none;
+        }
+
+        .btn-admin:hover {
+            background: #34495e;
+        }
+
+        .btn-admin.has-pending {
+            background: #e74c3c;
+            animation: pulse 2s infinite;
+        }
+
+        .btn-admin.has-pending:hover {
+            background: #c0392b;
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
         }
 
         @media (max-width: 768px) {
@@ -137,6 +183,10 @@
             <a href="/api/linije" class="btn">Izbor Linije</a>
             <a href="baza.html" class="btn">Baza Vozila</a>
             <a href="polasci.html" class="btn">Baza Linija</a>
+            <a href="admin.html" class="btn btn-admin" id="adminBtn">
+                🔐 Admin Panel
+                <span class="notification-badge" id="notificationBadge" style="display: none;">0</span>
+            </a>
         </div>
     </div>
 
@@ -164,6 +214,80 @@
         for (let i = 0; i < 50; i++) {
             setTimeout(createSnowflake, i * 50);
         }
+
+        // Provera admin statusa i pending korisnika
+        async function checkAdminStatus() {
+            const token = localStorage.getItem('authToken');
+            
+            if (!token) return;
+
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'verify', 
+                        token: token 
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success && data.isAdmin) {
+                    // Prikaži admin dugme
+                    document.getElementById('adminBtn').style.display = 'inline-block';
+                    
+                    // Proveri pending korisnike
+                    checkPendingUsers(token);
+                }
+            } catch (error) {
+                console.error('Error checking admin status:', error);
+            }
+        }
+
+        async function checkPendingUsers(token) {
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'listUsers',
+                        token: token
+                    })
+                });
+                
+                const data = await response.json();
+
+                if (data.success && data.users) {
+                    const pendingCount = data.users.filter(u => u.status === 'pending').length;
+                    
+                    const adminBtn = document.getElementById('adminBtn');
+                    const badge = document.getElementById('notificationBadge');
+                    
+                    if (pendingCount > 0) {
+                        adminBtn.classList.add('has-pending');
+                        badge.textContent = pendingCount;
+                        badge.style.display = 'flex';
+                    } else {
+                        adminBtn.classList.remove('has-pending');
+                        badge.style.display = 'none';
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking pending users:', error);
+            }
+        }
+
+        // Proveri admin status kada se stranica učita
+        window.addEventListener('load', checkAdminStatus);
+
+        // Periodično proveri pending korisnike (svakih 30 sekundi)
+        setInterval(() => {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                checkPendingUsers(token);
+            }
+        }, 30000);
     </script>
 </body>
 </html>
