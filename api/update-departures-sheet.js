@@ -9,35 +9,21 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // ===== GET za čitanje podataka =====
+  // ===== GET za čitanje podataka iz Polasci sheet-a =====
   if (req.method === 'GET') {
-    console.log('=== Departures Sheet Read Request ===');
+    console.log('=== Reading Polasci Sheet ===');
     
     try {
-      const clientEmail = process.env.GOOGLE_SHEETS_CLIENT_EMAIL;
-      const privateKey = process.env.GOOGLE_SHEETS_PRIVATE_KEY;
-      const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
-      if (!clientEmail || !privateKey || !spreadsheetId) {
-        return res.status(500).json({ 
-          error: 'Missing environment variables'
-        });
-      }
-
-      let formattedPrivateKey = privateKey;
-      if (privateKey.includes('\\n')) {
-        formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
-      }
-
       const auth = new google.auth.GoogleAuth({
         credentials: {
-          client_email: clientEmail,
-          private_key: formattedPrivateKey,
+          client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
+          private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY.replace(/\\n/g, '\n'),
         },
         scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
       });
 
       const sheets = google.sheets({ version: 'v4', auth });
+      const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
       const sheetName = 'Polasci';
 
       const response = await sheets.spreadsheets.values.get({
@@ -46,8 +32,6 @@ export default async function handler(req, res) {
       });
 
       const rows = response.data.values || [];
-      console.log(`Read ${rows.length} rows from sheet`);
-
       const routes = [];
       let currentRoute = null;
       let currentDirection = null;
@@ -58,28 +42,20 @@ export default async function handler(req, res) {
         if (!row[0] || row[0].includes('resetovan')) continue;
         
         if (row[0].startsWith('Linija ')) {
-          if (currentRoute) {
-            routes.push(currentRoute);
-          }
-          
+          if (currentRoute) routes.push(currentRoute);
           currentRoute = {
             routeName: row[0].replace('Linija ', '').trim(),
             directions: []
           };
-          currentDirection = null;
         }
-        else if (row[0].startsWith('Smer: ')) {
-          if (currentRoute) {
-            currentDirection = {
-              directionName: row[0].replace('Smer: ', '').trim(),
-              departures: []
-            };
-            currentRoute.directions.push(currentDirection);
-          }
+        else if (row[0].startsWith('Smer: ') && currentRoute) {
+          currentDirection = {
+            directionName: row[0].replace('Smer: ', '').trim(),
+            departures: []
+          };
+          currentRoute.directions.push(currentDirection);
         }
-        else if (row[0] === 'Polazak') {
-          continue;
-        }
+        else if (row[0] === 'Polazak') continue;
         else if (currentDirection && row[0] && row[0].match(/^\d{1,2}:\d{2}/)) {
           currentDirection.departures.push({
             startTime: row[0],
@@ -89,11 +65,7 @@ export default async function handler(req, res) {
         }
       }
 
-      if (currentRoute) {
-        routes.push(currentRoute);
-      }
-
-      console.log(`Parsed ${routes.length} routes`);
+      if (currentRoute) routes.push(currentRoute);
 
       return res.status(200).json({
         success: true,
@@ -110,128 +82,106 @@ export default async function handler(req, res) {
     }
   }
 
-  // ===== POST za kumulativno ažuriranje (BEZ BRISANJA) =====
+  // ===== POST za ažuriranje - čita iz Baza sheet-a =====
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  console.log('=== Departures Sheet Cumulative Update Request ===');
+  console.log('=== Updating Polasci from Baza Sheet ===');
   
   try {
-    const { vehicles } = req.body;
-
-    if (!vehicles || !Array.isArray(vehicles)) {
-      console.error('Invalid data format');
-      return res.status(400).json({ error: 'Invalid data format' });
-    }
-
-    console.log(`Received ${vehicles.length} vehicles for departure tracking`);
-
-    const clientEmail = process.env.GOOGLE_SHEETS_CLIENT_EMAIL;
-    const privateKey = process.env.GOOGLE_SHEETS_PRIVATE_KEY;
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
-    if (!clientEmail || !privateKey || !spreadsheetId) {
-      return res.status(500).json({ 
-        error: 'Missing environment variables'
-      });
-    }
-
-    let formattedPrivateKey = privateKey;
-    if (privateKey.includes('\\n')) {
-      formattedPrivateKey = privateKey.replace(/\\n/g, '\n');
-    }
-
     const auth = new google.auth.GoogleAuth({
       credentials: {
-        client_email: clientEmail,
-        private_key: formattedPrivateKey,
+        client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY.replace(/\\n/g, '\n'),
       },
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
 
     const sheets = google.sheets({ version: 'v4', auth });
+    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-    const now = new Date();
-    const timestamp = now.toLocaleString('sr-RS', { 
-      timeZone: 'Europe/Belgrade',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
+    // KORAK 1: Pročitaj podatke iz Baza sheet-a
+    console.log('Reading from Baza sheet...');
+    const bazaResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: 'Baza!A2:F',
     });
 
-    // Grupisanje novih vozila po linijama
-    const newRouteMap = {};
+    const bazaRows = bazaResponse.data.values || [];
     
-    vehicles.forEach(v => {
-      const route = v.routeDisplayName || v.routeId;
-      const destName = v.destName || 'Unknown';
-      const vehicleLabel = v.vehicleLabel || '';
-      const startTime = v.startTime || 'N/A';
-      
-      if (!newRouteMap[route]) {
-        newRouteMap[route] = {};
+    if (bazaRows.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No data in Baza sheet',
+        newDepartures: 0,
+        updatedDepartures: 0
+      });
+    }
+
+    console.log(`Found ${bazaRows.length} vehicles in Baza`);
+
+    // Grupisanje po linijama i smerovima
+    const routeMap = {};
+    
+    bazaRows.forEach(row => {
+      const vozilo = row[0] || '';
+      const linija = row[1] || '';
+      const polazak = row[2] || '';
+      const smer = row[3] || '';
+      const timestamp = row[4] || '';
+
+      if (!linija || !polazak || !smer) return;
+
+      if (!routeMap[linija]) {
+        routeMap[linija] = {};
       }
       
-      if (!newRouteMap[route][destName]) {
-        newRouteMap[route][destName] = [];
+      if (!routeMap[linija][smer]) {
+        routeMap[linija][smer] = [];
       }
       
-      newRouteMap[route][destName].push({
-        startTime: startTime,
-        vehicleLabel: vehicleLabel,
+      routeMap[linija][smer].push({
+        startTime: polazak,
+        vehicleLabel: vozilo,
         timestamp: timestamp
       });
     });
 
-    console.log(`Grouped into ${Object.keys(newRouteMap).length} routes`);
+    console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
-    // Proveri/Kreiraj sheet "Polasci"
+    // KORAK 2: Proveri/kreiraj Polasci sheet
     const sheetName = 'Polasci';
     let sheetId = null;
     
-    try {
-      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-      const existingSheet = spreadsheet.data.sheets.find(
-        s => s.properties.title === sheetName
-      );
-      
-      if (existingSheet) {
-        sheetId = existingSheet.properties.sheetId;
-        console.log(`✓ Sheet "${sheetName}" exists (ID: ${sheetId})`);
-      } else {
-        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
-          resource: {
-            requests: [{
-              addSheet: {
-                properties: {
-                  title: sheetName,
-                  gridProperties: {
-                    rowCount: 10000,
-                    columnCount: 10
-                  }
-                }
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+    const existingSheet = spreadsheet.data.sheets.find(
+      s => s.properties.title === sheetName
+    );
+    
+    if (existingSheet) {
+      sheetId = existingSheet.properties.sheetId;
+    } else {
+      const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        resource: {
+          requests: [{
+            addSheet: {
+              properties: {
+                title: sheetName,
+                gridProperties: { rowCount: 10000, columnCount: 10 }
               }
-            }]
-          }
-        });
-        
-        sheetId = addSheetResponse.data.replies[0].addSheet.properties.sheetId;
-        console.log(`✓ Created new sheet "${sheetName}" (ID: ${sheetId})`);
-      }
-    } catch (error) {
-      console.error('Error checking/creating sheet:', error.message);
-      throw error;
+            }
+          }]
+        }
+      });
+      sheetId = addSheetResponse.data.replies[0].addSheet.properties.sheetId;
     }
 
-    // ===== KLJUČNA PROMENA: Pročitaj postojeće podatke i mapiraj ih =====
+    // KORAK 3: Pročitaj postojeće podatke iz Polasci
     let existingData = [];
-    const existingDeparturesMap = new Map(); // Key: "route|direction|startTime|vehicle"
-    const routeStructure = new Map(); // Struktura: route -> direction -> departures[]
+    const existingDeparturesMap = new Map();
+    const routeStructure = new Map();
     
     try {
       const readResponse = await sheets.spreadsheets.values.get({
@@ -239,9 +189,7 @@ export default async function handler(req, res) {
         range: `${sheetName}!A1:J`,
       });
       existingData = readResponse.data.values || [];
-      console.log(`Found ${existingData.length} existing rows`);
 
-      // Parsiranje postojećih podataka
       let currentRoute = null;
       let currentDirection = null;
       
@@ -287,27 +235,31 @@ export default async function handler(req, res) {
       console.log('No existing data, starting fresh');
     }
 
-    // ===== Integracija novih podataka sa postojećima =====
+    // KORAK 4: Integracija novih podataka
     let updatedCount = 0;
     let newCount = 0;
     const updateRequests = [];
     const appendRows = [];
 
-    // Prolazak kroz nove podatke
-    for (let route in newRouteMap) {
-      const directions = newRouteMap[route];
+    // Sortiraj linije numerički
+    const sortedRoutes = Object.keys(routeMap).sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, '')) || 0;
+      const numB = parseInt(b.replace(/\D/g, '')) || 0;
+      return numA - numB;
+    });
+
+    for (let route of sortedRoutes) {
+      const directions = routeMap[route];
       
-      // Ako linija ne postoji, dodaj celu strukturu
       if (!routeStructure.has(route)) {
-        console.log(`New route: ${route}`);
+        // Nova linija
+        appendRows.push([`Linija ${route}`, '', '', '', '', '', '', '', '', '']);
         routeStructure.set(route, new Map());
         
-        // Dodaj header za novu liniju
-        appendRows.push([`Linija ${route}`, '', '', '', '', '', '', '', '', '']);
+        const sortedDirections = Object.keys(directions).sort();
         
-        for (let direction in directions) {
+        for (let direction of sortedDirections) {
           routeStructure.get(route).set(direction, []);
-          
           appendRows.push([`Smer: ${direction}`, '', '', '', '', '', '', '', '', '']);
           appendRows.push(['Polazak', 'Vozilo', 'Poslednji put viđen', '', '', '', '', '', '', '']);
           
@@ -316,13 +268,7 @@ export default async function handler(req, res) {
           );
           
           departures.forEach(dep => {
-            appendRows.push([
-              dep.startTime,
-              dep.vehicleLabel,
-              dep.timestamp,
-              '', '', '', '', '', '', ''
-            ]);
-            
+            appendRows.push([dep.startTime, dep.vehicleLabel, dep.timestamp, '', '', '', '', '', '', '']);
             routeStructure.get(route).get(direction).push(dep);
             newCount++;
           });
@@ -332,17 +278,13 @@ export default async function handler(req, res) {
         
         appendRows.push(['', '', '', '', '', '', '', '', '', '']);
       }
-      // Ako linija postoji, proveri smerove i polaske
       else {
+        // Postojeća linija
         for (let direction in directions) {
           
-          // Ako smer ne postoji, dodaj ga
           if (!routeStructure.get(route).has(direction)) {
-            console.log(`New direction: ${route} -> ${direction}`);
+            // Novi smer
             routeStructure.get(route).set(direction, []);
-            
-            // Pronađi gde da ubacimo novi smer (nakon poslednjeg smera te linije)
-            // Za sada samo append na kraj
             appendRows.push([`Smer: ${direction}`, '', '', '', '', '', '', '', '', '']);
             appendRows.push(['Polazak', 'Vozilo', 'Poslednji put viđen', '', '', '', '', '', '', '']);
             
@@ -351,46 +293,31 @@ export default async function handler(req, res) {
             );
             
             departures.forEach(dep => {
-              appendRows.push([
-                dep.startTime,
-                dep.vehicleLabel,
-                dep.timestamp,
-                '', '', '', '', '', '', ''
-              ]);
-              
+              appendRows.push([dep.startTime, dep.vehicleLabel, dep.timestamp, '', '', '', '', '', '', '']);
               routeStructure.get(route).get(direction).push(dep);
               newCount++;
             });
             
             appendRows.push(['', '', '', '', '', '', '', '', '', '']);
           }
-          // Smer postoji, proveri pojedinačne polaske
           else {
+            // Postojeći smer - proveri polaske
             const departures = directions[direction];
             
             departures.forEach(dep => {
               const key = `${route}|${direction}|${dep.startTime}|${dep.vehicleLabel}`;
               
-              // Ako polazak već postoji, ažuriraj samo timestamp
               if (existingDeparturesMap.has(key)) {
+                // Ažuriraj timestamp
                 const existing = existingDeparturesMap.get(key);
                 updateRequests.push({
                   range: `${sheetName}!C${existing.row + 1}`,
                   values: [[dep.timestamp]]
                 });
                 updatedCount++;
-              }
-              // Ako je novi polazak, dodaj ga
-              else {
-                // Dodajemo na kraj smera - u appendRows
-                // (Alternativa: insert na pravo mesto sa sortiranjem)
-                appendRows.push([
-                  dep.startTime,
-                  dep.vehicleLabel,
-                  dep.timestamp,
-                  '', '', '', '', '', '', ''
-                ]);
-                
+              } else {
+                // Novi polazak
+                appendRows.push([dep.startTime, dep.vehicleLabel, dep.timestamp, '', '', '', '', '', '', '']);
                 routeStructure.get(route).get(direction).push(dep);
                 newCount++;
               }
@@ -400,42 +327,33 @@ export default async function handler(req, res) {
       }
     }
 
-    console.log(`Updates: ${updatedCount}, New departures: ${newCount}`);
+    console.log(`Updates: ${updatedCount}, New: ${newCount}`);
 
-    // ===== Primeni izmene =====
-    
-    // 1. Ažuriraj timestamp-ove postojećih polazaka
+    // KORAK 5: Primeni izmene
     if (updateRequests.length > 0) {
-      const batchUpdateData = {
+      await sheets.spreadsheets.values.batchUpdate({
         spreadsheetId,
         resource: {
           valueInputOption: 'RAW',
           data: updateRequests
         }
-      };
-      
-      await sheets.spreadsheets.values.batchUpdate(batchUpdateData);
+      });
       console.log(`✓ Updated ${updateRequests.length} timestamps`);
     }
 
-    // 2. Dodaj nove redove na kraj
     if (appendRows.length > 0) {
       await sheets.spreadsheets.values.append({
         spreadsheetId,
         range: `${sheetName}!A:J`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
-        resource: {
-          values: appendRows
-        }
+        resource: { values: appendRows }
       });
       console.log(`✓ Appended ${appendRows.length} new rows`);
-    }
 
-    // 3. Primeni formatiranje na nove redove
-    if (appendRows.length > 0) {
+      // Formatiranje novih redova
       const formatRequests = [];
-      const startRow = existingData.length; // Početak novih redova
+      const startRow = existingData.length;
       
       for (let i = 0; i < appendRows.length; i++) {
         const row = appendRows[i];
@@ -500,10 +418,7 @@ export default async function handler(req, res) {
               cell: {
                 userEnteredFormat: {
                   backgroundColor: { red: 0.95, green: 0.95, blue: 0.95 },
-                  textFormat: {
-                    fontSize: 10,
-                    bold: true
-                  }
+                  textFormat: { fontSize: 10, bold: true }
                 }
               },
               fields: 'userEnteredFormat(backgroundColor,textFormat)'
@@ -515,15 +430,23 @@ export default async function handler(req, res) {
       if (formatRequests.length > 0) {
         await sheets.spreadsheets.batchUpdate({
           spreadsheetId,
-          resource: {
-            requests: formatRequests
-          }
+          resource: { requests: formatRequests }
         });
         console.log(`✓ Applied ${formatRequests.length} format rules`);
       }
     }
 
-    console.log('=== Cumulative Update Complete ===');
+    const timestamp = new Date().toLocaleString('sr-RS', { 
+      timeZone: 'Europe/Belgrade',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    console.log('=== Update Complete ===');
 
     res.status(200).json({ 
       success: true, 
@@ -535,10 +458,10 @@ export default async function handler(req, res) {
     });
 
   } catch (error) {
-    console.error('Unexpected error:', error);
+    console.error('Error:', error);
     res.status(500).json({ 
-      error: 'Unexpected error',
+      error: 'Update failed',
       details: error.message
     });
   }
-                                                        }
+}
