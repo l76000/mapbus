@@ -330,7 +330,8 @@
             resultsContainer.innerHTML = '<div class="loading">Učitavam podatke</div>';
 
             try {
-                const response = await fetch('/api/get-departures-data');
+                // PROMENA: Koristi update-departures-sheet sa GET metodom
+                const response = await fetch('/api/update-departures-sheet');
                 const data = await response.json();
 
                 if (!data.success || !data.routes) {
@@ -414,4 +415,4 @@
         }
     </script>
 </body>
-  </html>
+</html>
