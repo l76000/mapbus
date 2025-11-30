@@ -129,12 +129,17 @@ export default async function handler(req, res) {
       month: '2-digit',
       year: 'numeric'
     });
+    
+    const currentHour = belgradTime.getHours();
+    const currentMinute = belgradTime.getMinutes();
+    const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
-    console.log(`Today's date: ${todayDate}`);
+    console.log(`Today's date: ${todayDate}, Current time: ${currentHour}:${currentMinute}`);
 
-    // Grupisanje po linijama i smerovima - samo današnja vozila
+    // Grupisanje po linijama i smerovima - samo današnja vozila sa prošlim polascima
     const routeMap = {};
     let skippedOld = 0;
+    let skippedFuture = 0;
     let processedToday = 0;
     
     bazaRows.forEach(row => {
@@ -156,6 +161,19 @@ export default async function handler(req, res) {
         return;
       }
       
+      // Proveri da li je polazak u budućnosti
+      // Format polaska je "HH:MM:SS" ili "HH:MM"
+      const polazakParts = polazak.split(':');
+      const polazakHour = parseInt(polazakParts[0]) || 0;
+      const polazakMinute = parseInt(polazakParts[1]) || 0;
+      const polazakTimeInMinutes = polazakHour * 60 + polazakMinute;
+      
+      // Ako je polazak u budućnosti, preskoči
+      if (polazakTimeInMinutes > currentTimeInMinutes) {
+        skippedFuture++;
+        return;
+      }
+      
       processedToday++;
 
       if (!routeMap[linija]) {
@@ -173,7 +191,8 @@ export default async function handler(req, res) {
       });
     });
 
-    console.log(`Processed ${processedToday} today's vehicles, skipped ${skippedOld} old vehicles`);
+    console.log(`Processed ${processedToday} valid departures`);
+    console.log(`Skipped: ${skippedOld} old dates, ${skippedFuture} future departures`);
     console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     if (Object.keys(routeMap).length === 0) {
