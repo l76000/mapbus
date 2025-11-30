@@ -122,27 +122,24 @@ export default async function handler(req, res) {
     
     console.log('✅ Hourly update completed:', result);
     
-    // KORAK 6: Ažuriraj Departures sheet
-    try {
-      const departuresResponse = await fetch(`${baseUrl}/api/update-departures-sheet`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          vehicles: formattedVehicles 
-        })
-      });
-
-      if (departuresResponse.ok) {
-        const departuresResult = await departuresResponse.json();
-        console.log('✅ Departures sheet updated:', departuresResult);
-      } else {
-        console.log('⚠️ Departures sheet update failed');
-      }
-    } catch (departuresError) {
-      console.error('⚠️ Departures sheet error:', departuresError.message);
+   // KORAK 6: Ažuriraj Departures sheet direktno iz Baza sheet-a
+try {
+  const departuresResponse = await fetch(`${baseUrl}/api/update-departures-simple`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
     }
+  });
+
+  if (departuresResponse.ok) {
+    const departuresResult = await departuresResponse.json();
+    console.log('✅ Departures sheet updated:', departuresResult);
+  } else {
+    console.log('⚠️ Departures sheet update failed');
+  }
+} catch (departuresError) {
+  console.error('⚠️ Departures sheet error:', departuresError.message);
+}
     
     // Vrati odgovor sa ključnom rečju "SUCCESS" za UptimeRobot
     const timestamp = new Date().toLocaleString('sr-RS', { 
