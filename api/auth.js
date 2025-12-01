@@ -34,23 +34,23 @@ function parseUserAgent(userAgent) {
       // Prepoznaj proizvođača
       if (model.toLowerCase().startsWith('sm-') || model.toLowerCase(). includes('samsung')) {
         device = `Samsung ${model. replace(/samsung/gi, '').trim()}`;
-      } else if (model.toLowerCase().startsWith('redmi') || model.toLowerCase(). startsWith('m') && model.includes('k')) {
+      } else if (model.toLowerCase().startsWith('redmi') || (model.toLowerCase().startsWith('m') && model.includes('k'))) {
         device = `Xiaomi ${model}`;
-      } else if (model.toLowerCase(). includes('xiaomi')) {
+      } else if (model.toLowerCase().includes('xiaomi')) {
         device = model;
       } else if (model.toLowerCase(). startsWith('rmx')) {
         device = `Realme ${model}`;
       } else if (model.toLowerCase(). startsWith('cph')) {
         device = `OPPO ${model}`;
-      } else if (model.toLowerCase().startsWith('v') && /^v\d/i.test(model)) {
+      } else if (model.toLowerCase(). startsWith('v') && /^v\d/i.test(model)) {
         device = `Vivo ${model}`;
       } else if (model.toLowerCase(). includes('huawei') || model.toLowerCase(). startsWith('els') || model.toLowerCase(). startsWith('jny')) {
         device = `Huawei ${model. replace(/huawei/gi, ''). trim()}`;
       } else if (model.toLowerCase().startsWith('pixel')) {
         device = `Google ${model}`;
-      } else if (model.toLowerCase(). includes('oneplus')) {
+      } else if (model.toLowerCase().includes('oneplus')) {
         device = model;
-      } else if (model.toLowerCase(). startsWith('lm-')) {
+      } else if (model.toLowerCase().startsWith('lm-')) {
         device = `LG ${model}`;
       } else if (model.toLowerCase(). startsWith('moto') || model.toLowerCase(). startsWith('xt')) {
         device = `Motorola ${model}`;
@@ -61,19 +61,14 @@ function parseUserAgent(userAgent) {
       device = 'Android';
     }
   } else if (userAgent.includes('Windows NT 10.0')) {
-    if (userAgent.includes('Windows NT 10.0; Win64') && userAgent.includes('rv:') === false) {
-      // Može biti Windows 10 ili 11, ali ne možemo tačno znati
-      device = 'Windows 10/11';
-    } else {
-      device = 'Windows 10/11';
-    }
+    device = 'Windows 10/11';
   } else if (userAgent.includes('Windows NT 6.3')) {
-    device = 'Windows 8. 1';
+    device = 'Windows 8.1';
   } else if (userAgent.includes('Windows NT 6.2')) {
     device = 'Windows 8';
-  } else if (userAgent.includes('Windows NT 6. 1')) {
+  } else if (userAgent.includes('Windows NT 6.1')) {
     device = 'Windows 7';
-  } else if (userAgent.includes('Mac OS X')) {
+  } else if (userAgent. includes('Mac OS X')) {
     device = 'macOS';
   } else if (userAgent.includes('Linux')) {
     device = 'Linux';
@@ -90,9 +85,9 @@ function parseUserAgent(userAgent) {
   } else if (userAgent.includes('OPR/') || userAgent.includes('Opera')) {
     const match = userAgent. match(/OPR\/(\d+)/);
     browser = match ? `Opera ${match[1]}` : 'Opera';
-  } else if (userAgent.includes('Chrome/') && ! userAgent.includes('Edg/') && !userAgent. includes('OPR/')) {
-    const match = userAgent. match(/Chrome\/(\d+)/);
-    browser = match ?  `Chrome ${match[1]}` : 'Chrome';
+  } else if (userAgent.includes('Chrome/') && !userAgent.includes('Edg/') && !userAgent. includes('OPR/')) {
+    const match = userAgent.match(/Chrome\/(\d+)/);
+    browser = match ? `Chrome ${match[1]}` : 'Chrome';
   } else if (userAgent.includes('Firefox/')) {
     const match = userAgent.match(/Firefox\/(\d+)/);
     browser = match ? `Firefox ${match[1]}` : 'Firefox';
@@ -111,8 +106,8 @@ function parseUserAgent(userAgent) {
 // Google Sheets setup
 const auth = new google.auth.GoogleAuth({
   credentials: {
-    client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
-    private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY?. replace(/\\n/g, '\n'),
+    client_email: process.env. GOOGLE_SHEETS_CLIENT_EMAIL,
+    private_key: process.env. GOOGLE_SHEETS_PRIVATE_KEY?. replace(/\\n/g, '\n'),
   },
   scopes: ['https://www.googleapis. com/auth/spreadsheets'],
 });
@@ -137,12 +132,12 @@ export default async function handler(req, res) {
     let users = [];
     
     try {
-      const response = await sheets. spreadsheets.values.get({
+      const response = await sheets.spreadsheets.values. get({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${USERS_SHEET}!A:I`, // Prošireno na I kolonu za DeviceHistory
+        range: `${USERS_SHEET}!A:I`,
       });
 
-      const rows = response.data. values || [];
+      const rows = response.data.values || [];
       
       if (rows.length === 0) {
         await sheets.spreadsheets.values.update({
@@ -163,7 +158,7 @@ export default async function handler(req, res) {
           ipHistory: row[5] || '',
           isAdmin: row[6] === 'true' || row[6] === 'TRUE' || false,
           lastAccess: row[7] || '',
-          deviceHistory: row[8] || '', // Nova kolona
+          deviceHistory: row[8] || '',
         }));
       }
     } catch (error) {
@@ -260,10 +255,8 @@ export default async function handler(req, res) {
       let needsMigration = false;
 
       if (verifyPassword(password, user.passwordHash)) {
-        // Lozinka je već hešovana i tačna
         isPasswordValid = true;
       } else if (user.passwordHash === password) {
-        // Stara plain text lozinka - treba migrirati
         isPasswordValid = true;
         needsMigration = true;
       }
@@ -291,14 +284,14 @@ export default async function handler(req, res) {
       const now = new Date().toLocaleString('sr-RS', { timeZone: 'Europe/Belgrade' });
 
       // Ako je potrebna migracija, hešuj lozinku
-      const passwordToStore = needsMigration ? hashPassword(password) : user.passwordHash;
+      const passwordToStore = needsMigration ?  hashPassword(password) : user.passwordHash;
 
       await sheets.spreadsheets.values. update({
         spreadsheetId: SPREADSHEET_ID,
         range: `${USERS_SHEET}!B${userIdx + 2}:I${userIdx + 2}`,
         valueInputOption: 'RAW',
         resource: {
-          values: [[passwordToStore, user.status, user.registeredAt, ip, ipHistory, user.isAdmin ?  'true' : 'false', now, deviceHistory]]
+          values: [[passwordToStore, user. status, user.registeredAt, ip, ipHistory, user.isAdmin ?  'true' : 'false', now, deviceHistory]]
         }
       });
 
@@ -306,12 +299,12 @@ export default async function handler(req, res) {
         console.log(`✓ Migrated password for user: ${username}`);
       }
 
-      const token = Buffer.from(`${username}:${Date.now()}`). toString('base64');
+      const newToken = Buffer.from(`${username}:${Date.now()}`). toString('base64');
 
-      return res.status(200).json({ 
+      return res. status(200).json({ 
         success: true, 
         message: 'Uspešna prijava',
-        token: token,
+        token: newToken,
         username: username,
         isAdmin: user.isAdmin
       });
@@ -324,7 +317,7 @@ export default async function handler(req, res) {
       }
 
       try {
-        const decoded = Buffer.from(token, 'base64').toString('utf-8');
+        const decoded = Buffer.from(token, 'base64'). toString('utf-8');
         const [tokenUsername, timestamp] = decoded.split(':');
 
         const user = users.find(u => u.username === tokenUsername);
@@ -358,37 +351,37 @@ export default async function handler(req, res) {
 
         return res.status(200).json({ success: true, username: tokenUsername, isAdmin: user.isAdmin });
       } catch (e) {
-        return res.status(401).json({ success: false, message: 'Nevažeći token' });
+        return res. status(401).json({ success: false, message: 'Nevažeći token' });
       }
     }
 
     // ====== LISTA KORISNIKA (za admin) ======
     if (action === 'listUsers') {
-      if (! token) {
+      if (!token) {
         return res.status(401).json({ success: false, message: 'Neautorizovan pristup' });
       }
 
       try {
-        const decoded = Buffer. from(token, 'base64').toString('utf-8');
+        const decoded = Buffer.from(token, 'base64'). toString('utf-8');
         const [tokenUsername] = decoded.split(':');
         const requestUser = users.find(u => u.username === tokenUsername);
         
-        if (! requestUser || ! requestUser.isAdmin) {
+        if (!requestUser || ! requestUser.isAdmin) {
           return res.status(403).json({ success: false, message: 'Nemate admin privilegije' });
         }
       } catch (e) {
-        return res.status(401).json({ success: false, message: 'Nevažeći token' });
+        return res.status(401). json({ success: false, message: 'Nevažeći token' });
       }
 
       const sanitizedUsers = users. map(u => ({
         username: u.username,
         status: u.status,
         registeredAt: u.registeredAt,
-        lastIP: u.lastIP,
-        ipHistory: u.ipHistory,
-        isAdmin: u.isAdmin,
-        lastAccess: u. lastAccess,
-        deviceHistory: u.deviceHistory // Dodato
+        lastIP: u. lastIP,
+        ipHistory: u. ipHistory,
+        isAdmin: u. isAdmin,
+        lastAccess: u.lastAccess,
+        deviceHistory: u.deviceHistory
       }));
 
       return res.status(200).json({ success: true, users: sanitizedUsers });
@@ -397,11 +390,11 @@ export default async function handler(req, res) {
     // ====== AŽURIRANJE STATUSA (za admin) ======
     if (action === 'updateStatus') {
       if (!token) {
-        return res.status(401).json({ success: false, message: 'Neautorizovan pristup' });
+        return res.status(401). json({ success: false, message: 'Neautorizovan pristup' });
       }
 
       try {
-        const decoded = Buffer.from(token, 'base64'). toString('utf-8');
+        const decoded = Buffer.from(token, 'base64').toString('utf-8');
         const [tokenUsername] = decoded.split(':');
         const requestUser = users.find(u => u. username === tokenUsername);
         
@@ -431,10 +424,10 @@ export default async function handler(req, res) {
       return res.status(200). json({ success: true, message: 'Status ažuriran' });
     }
 
-    return res.status(400).json({ error: 'Nevažeća akcija' });
+    return res. status(400).json({ error: 'Nevažeća akcija' });
 
   } catch (error) {
-    console.error('Auth error:', error);
+    console. error('Auth error:', error);
     return res.status(500).json({ 
       success: false, 
       error: 'Server greška',
