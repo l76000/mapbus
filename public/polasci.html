@@ -363,6 +363,16 @@
                     >
                 </div>
                 <button onclick="searchLine()">Pretraži</button>
+                <div class="search-group">
+    <label for="vehicleSearch">Ili broj vozila:</label>
+    <input 
+        type="text" 
+        id="vehicleSearch" 
+        placeholder="npr. 2105"
+        onkeypress="if(event.key === 'Enter') searchVehicle()"
+    >
+</div>
+<button onclick="searchVehicle()">Pretraži vozilo</button>
             </div>
             <div class="button-container">
             <a href="juce.html" class="btn">Jučerašnji Podaci</a>
@@ -470,6 +480,125 @@
             html += '</div>';
             resultsContainer.innerHTML = html;
         }
+
+
+
+async function searchVehicle() {
+    const searchInput = document.getElementById('vehicleSearch');
+    const vehicleNumber = searchInput.value.trim();
+    const resultsContainer = document. getElementById('resultsContainer');
+
+    if (!vehicleNumber) {
+        alert('Unesite broj vozila');
+        return;
+    }
+
+    resultsContainer.classList.add('show');
+    resultsContainer.innerHTML = '<div class="loading">Učitavam podatke</div>';
+
+    try {
+        // Koristi ISTI postojeći API endpoint
+        const response = await fetch('/api/update-departures-sheet');
+        const data = await response. json();
+
+        if (! data.success || !data.routes) {
+            resultsContainer.innerHTML = '<div class="no-data">Greška pri učitavanju podataka</div>';
+            return;
+        }
+
+        // Filtriraj sve polaske za dato vozilo
+        const vehicleDepartures = [];
+        
+        data.routes. forEach(route => {
+            route.directions.forEach(direction => {
+                direction. departures.forEach(dep => {
+                    if (dep. vehicleLabel && dep.vehicleLabel.includes(vehicleNumber)) {
+                        vehicleDepartures. push({
+                            linija: route. routeName,
+                            smer: direction.directionName,
+                            vreme: dep.startTime,
+                            vozilo: dep.vehicleLabel
+                        });
+                    }
+                });
+            });
+        });
+
+        if (vehicleDepartures.length === 0) {
+            resultsContainer.innerHTML = `
+                <div class="no-data">
+                    Vozilo "${vehicleNumber}" nije pronađeno. <br>
+                    <small style="color: #999; margin-top: 10px; display: block;">
+                        Možda vozilo danas nije bilo u saobraćaju. 
+                    </small>
+                </div>
+            `;
+            return;
+        }
+
+        // Sortiraj po vremenu
+        vehicleDepartures.sort((a, b) => a.vreme. localeCompare(b.vreme));
+        
+        displayVehicleResults(vehicleNumber, vehicleDepartures);
+
+    } catch (error) {
+        console.error('Greška:', error);
+        resultsContainer.innerHTML = '<div class="no-data">Greška pri učitavanju podataka</div>';
+    }
+}
+
+function displayVehicleResults(vehicleNumber, departures) {
+    const resultsContainer = document.getElementById('resultsContainer');
+    
+    // Grupiši po linijama
+    const groupedByLine = {};
+    departures.forEach(dep => {
+        if (!groupedByLine[dep.linija]) {
+            groupedByLine[dep.linija] = [];
+        }
+        groupedByLine[dep.linija].push(dep);
+    });
+
+    const lineCount = Object.keys(groupedByLine). length;
+
+    let html = `
+        <div class="route-section">
+            <div class="route-header">
+                <div class="route-title">Vozilo: ${vehicleNumber}</div>
+                <div class="route-stats">
+                    ${lineCount} ${lineCount === 1 ? 'linija' : 'linija'} • 
+                    ${departures.length} ${departures.length === 1 ? 'polazak' : departures.length < 5 ?  'polaska' : 'polazaka'}
+                </div>
+            </div>
+    `;
+
+    for (const linija in groupedByLine) {
+        const lineDeps = groupedByLine[linija];
+        
+        html += `
+            <div class="direction-section">
+                <div class="direction-header">
+                    <div class="direction-title">Linija ${linija}</div>
+                    <div class="direction-count">${lineDeps.length}</div>
+                </div>
+                <div class="departures-list">
+        `;
+
+        lineDeps.forEach(dep => {
+            html += `
+                <div class="departure-item">
+                    <span class="departure-time">${dep.vreme}</span>
+                    <span class="departure-vehicle">→ ${dep.smer}</span>
+                </div>
+            `;
+        });
+
+        html += '</div></div>`;
+    }
+
+    html += '</div>';
+    resultsContainer.innerHTML = html;
+}
     </script>
 </body>
 </html>
