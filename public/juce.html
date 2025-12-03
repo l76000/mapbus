@@ -433,7 +433,7 @@
             resultsContainer.innerHTML = '<div class="loading">Učitavam jučerašnje podatke</div>';
 
             try {
-                const response = await fetch('/api/update-departures-sheet? yesterday=true');
+                const response = await fetch('/api/update-departures-sheet?yesterday=true');
                 const data = await response.json();
 
                 if (! data.success || !data.routes) {
