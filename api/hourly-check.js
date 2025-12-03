@@ -125,7 +125,7 @@ export default async function handler(req, res) {
     
     // KORAK 6: Ažuriraj Departures sheet direktno iz Baza sheet-a
     try {
-      const departuresResponse = await fetch(`${baseUrl}/api/update-departures-simple`, {
+      const departuresResponse = await fetch(`${baseUrl}/api/update-departures-sheet`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
