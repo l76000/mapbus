@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <script src="/auth-check.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Nezvanični prikaz vozila javnog prevoza Beograda u realnom vremenu.">
+    <meta name="author" content="Nezavisni projekat">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Red Vožnje Prigrad (BETA)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .snowflake {
+            position: fixed;
+            top: -10px;
+            color: white;
+            font-size: 1em;
+            pointer-events: none;
+            z-index: 1;
+            animation: fall linear infinite;
+        }
+
+        @keyframes fall {
+            to {
+                transform: translateY(100vh);
+            }
+        }
+
+        .container {
+            text-align: center;
+            position: relative;
+            z-index: 2;
+        }
+
+        h1 {
+            font-family: 'Arial Black', Arial, sans-serif;
+            color: white;
+            font-size: 2.5em;
+            margin-bottom: 50px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            position: relative;
+            display: inline-block;
+        }
+
+        .m-letter {
+            position: relative;
+            display: inline-block;
+        }
+
+        .santa-hat-img {
+            position: absolute;
+            left: -12px;
+            top: 2px;
+            width: 28px;
+            height: auto;
+            transform: rotate(-20deg);
+            z-index: 10;
+        }
+
+        .button-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 20px 50px;
+            background: white;
+            color: #667eea;
+            text-decoration: none;
+            font-size: 1.3em;
+            font-weight: 600;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
+            transition: all 0.3s ease;
+            min-width: 250px;
+            position: relative;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.3);
+            background: #f8f9ff;
+        }
+
+        .btn:active {
+            transform: translateY(-1px);
+        }
+
+        .btn-admin {
+            background: #2c3e50;
+            color: white;
+            display: none;
+        }
+
+        .btn-admin:hover {
+            background: #34495e;
+        }
+
+        .btn-admin.has-pending {
+            background: #e74c3c;
+            animation: pulse 2s infinite;
+        }
+
+        .btn-admin.has-pending:hover {
+            background: #c0392b;
+        }
+
+        .notification-badge {
+            position: absolute;
+            top: -10px;
+            right: -10px;
+            background: #e74c3c;
+            color: white;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8em;
+            font-weight: bold;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.05);
+            }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+
+            .santa-hat-img {
+                left: -9px;
+                top: -4px;
+                width: 22px;
+            }
+
+            .btn {
+                padding: 15px 40px;
+                font-size: 1.1em;
+                min-width: 200px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Red Vožnje Prigrad (BETA)
+        </h1>
+        <div class="button-container">
+            <a href="493.html" class="btn">493X</a>
+            <a href="300sumice.html" class="btn">Šumice 300</a>
+            </a>
+        </div>
+    </div>
+</body>
+</html>
