@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Red Vožnje - Banovo Brdo</title>
+    <title>Red Vožnje - Banovo Brdo → Barajevo</title>
     <style>
         * {
             margin: 0;
@@ -19,7 +19,7 @@
         }
 
         .container {
-            max-width: 1600px;
+            max-width: 1000px;
             margin: 0 auto;
         }
 
@@ -109,9 +109,9 @@
             transition: transform 0.2s, box-shadow 0.2s;
         }
 
-        .search-box button:hover {
+        . search-box button:hover {
             transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(30, 60, 114, 0.4);
+            box-shadow: 0 6px 20px rgba(30, 60, 114, 0. 4);
         }
 
         .clear-btn {
@@ -161,18 +161,6 @@
             font-size: 13px;
         }
 
-        .directions-container {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 1200px) {
-            .directions-container {
-                grid-template-columns: 1fr;
-            }
-        }
-
         .direction-card {
             background: white;
             border-radius: 12px;
@@ -185,10 +173,6 @@
             color: white;
             padding: 20px;
             text-align: center;
-        }
-
-        .direction-header.reverse {
-            background: linear-gradient(135deg, #2a5298 0%, #1e3c72 100%);
         }
 
         .direction-title {
@@ -256,7 +240,7 @@
             transform: scale(1.05);
         }
 
-        .minute-badge .minute {
+        .minute-badge . minute {
             font-size: 16px;
             font-weight: bold;
         }
@@ -274,10 +258,10 @@
         .minute-badge.highlighted {
             background: #ffc107;
             color: #333;
-            animation: pulse 1.5s infinite;
+            animation: pulse 1. 5s infinite;
         }
 
-        .minute-badge.highlighted .line-tag {
+        . minute-badge.highlighted .line-tag {
             color: #333;
         }
 
@@ -287,16 +271,15 @@
         }
 
         /* Boje za različite linije */
-        .minute-badge.line-560 { border-left: 4px solid #2196F3; }
+        . minute-badge.line-560 { border-left: 4px solid #2196F3; }
         .minute-badge.line-560a { border-left: 4px solid #03A9F4; }
-        .minute-badge.line-560e { border-left: 4px solid #00BCD4; }
         .minute-badge.line-586 { border-left: 4px solid #4CAF50; }
         .minute-badge.line-591 { border-left: 4px solid #FF9800; }
         .minute-badge.line-592 { border-left: 4px solid #FF5722; }
         .minute-badge.line-593 { border-left: 4px solid #9C27B0; }
-        .minute-badge.line-593a { border-left: 4px solid #E91E63; }
+        . minute-badge.line-593a { border-left: 4px solid #E91E63; }
 
-        /* Tooltip / Oblačić */
+        /* Tooltip */
         .tooltip {
             position: absolute;
             bottom: calc(100% + 10px);
@@ -385,13 +368,12 @@
 
         .legend-color.c-560 { background: #2196F3; }
         .legend-color.c-560a { background: #03A9F4; }
-        .legend-color.c-560e { background: #00BCD4; }
-        .legend-color.c-586 { background: #4CAF50; }
+        .legend-color. c-586 { background: #4CAF50; }
         .legend-color.c-591 { background: #FF9800; }
         .legend-color.c-592 { background: #FF5722; }
         .legend-color.c-593 { background: #9C27B0; }
         .legend-color.c-593a { background: #E91E63; }
-        .legend-color.c-highlight { background: #ffc107; }
+        .legend-color. c-highlight { background: #ffc107; }
 
         .stats-bar {
             display: flex;
@@ -429,7 +411,7 @@
                 min-width: 45px;
             }
             
-            .minute-badge .minute {
+            . minute-badge .minute {
                 font-size: 14px;
             }
             
@@ -443,11 +425,10 @@
     <div class="container">
         <div class="header">
             <h1>Red Vožnje</h1>
-            <p class="subtitle">Banovo Brdo</p>
+            <p class="subtitle">Banovo Brdo → Barajevo / Obrenovac</p>
             <div class="lines-badges">
                 <span class="line-badge">560</span>
                 <span class="line-badge">560a</span>
-                <span class="line-badge">560e</span>
                 <span class="line-badge">586</span>
                 <span class="line-badge">591</span>
                 <span class="line-badge">592</span>
@@ -464,7 +445,7 @@
                     <div class="stat-label">Vozila</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-number">8</div>
+                    <div class="stat-number">7</div>
                     <div class="stat-label">Linija</div>
                 </div>
             </div>
@@ -473,30 +454,19 @@
         <div class="search-container">
             <div class="search-box">
                 <label for="vehicleSearch">🔍 Pretraga vozila:</label>
-                <input type="text" id="vehicleSearch" placeholder="Unesite broj vozila (npr.P76445)">
+                <input type="text" id="vehicleSearch" placeholder="Unesite broj vozila (npr. P76445)">
                 <button onclick="searchVehicle()">Pretraži</button>
                 <button class="clear-btn" onclick="clearSearch()">Obriši</button>
             </div>
             <div id="searchResults" class="search-results"></div>
         </div>
 
-        <div class="directions-container">
-            <div class="direction-card">
-                <div class="direction-header">
-                    <div class="direction-title">Banovo Brdo → Barajevo / Obrenovac</div>
-                    <div class="direction-subtitle">Polasci sa Banovog Brda</div>
-                </div>
-                <div class="schedule-grid" id="schedule-banovo">
-                </div>
+        <div class="direction-card">
+            <div class="direction-header">
+                <div class="direction-title">Banovo Brdo → Barajevo / Obrenovac</div>
+                <div class="direction-subtitle">Polasci sa Banovog Brda (smer od grada)</div>
             </div>
-
-            <div class="direction-card">
-                <div class="direction-header reverse">
-                    <div class="direction-title">Barajevo / Obrenovac → Banovo Brdo</div>
-                    <div class="direction-subtitle">Polasci ka Banovom Brdu</div>
-                </div>
-                <div class="schedule-grid" id="schedule-barajevo">
-                </div>
+            <div class="schedule-grid" id="schedule-banovo">
             </div>
         </div>
 
@@ -505,7 +475,6 @@
             <div class="legend-items">
                 <div class="legend-item"><div class="legend-color c-560"></div><span>560 → Barajevo</span></div>
                 <div class="legend-item"><div class="legend-color c-560a"></div><span>560a → Barajevo</span></div>
-                <div class="legend-item"><div class="legend-color c-560e"></div><span>560e → Barajevo (ekspres)</span></div>
                 <div class="legend-item"><div class="legend-color c-586"></div><span>586 → Termoelektrana</span></div>
                 <div class="legend-item"><div class="legend-color c-591"></div><span>591 → Taraiš</span></div>
                 <div class="legend-item"><div class="legend-color c-592"></div><span>592 → Draževac</span></div>
@@ -517,11 +486,11 @@
     </div>
 
     <script>
-        // Podaci izvučeni iz 56X.html, 586.html i 59X.html fajlova
+        // Podaci - SAMO smer SA Banovog Brda (ka Barajevu/Obrenovcu)
+        // Izvučeno iz 56X. html, 586.html i 59X.html
         const scheduleData = {
-            // Banovo Brdo → Barajevo/Obrenovac (smer KA destinacijama)
-            banovoToBarajevo: [
-                // ============ 560 - Barajevo AS ============
+            banovoPolasci: [
+                // ============ 560 - Barajevo AS (72 polaska) ============
                 { time: "04:30", vehicle: "P76441", line: "560", destination: "Barajevo AS" },
                 { time: "04:40", vehicle: "P76445", line: "560", destination: "Barajevo AS" },
                 { time: "04:50", vehicle: "P58408", line: "560", destination: "Barajevo AS" },
@@ -594,22 +563,18 @@
                 { time: "20:15", vehicle: "P76431", line: "560", destination: "Barajevo AS" },
                 { time: "20:30", vehicle: "P70413", line: "560", destination: "Barajevo AS" },
 
-                // ============ 560a - Barajevo AS ============
+                // ============ 560a - Barajevo AS (3 polaska) ============
                 { time: "07:00", vehicle: "P76449", line: "560a", destination: "Barajevo AS" },
                 { time: "12:45", vehicle: "P76431", line: "560a", destination: "Barajevo AS" },
                 { time: "12:45", vehicle: "P58408", line: "560a", destination: "Barajevo AS" },
 
-                // ============ 560e - Barajevo AS (ekspres) ============
-                { time: "07:15", vehicle: "P76431", line: "560e", destination: "Barajevo AS" },
-                { time: "15:25", vehicle: "P76449", line: "560e", destination: "Barajevo AS" },
-
-                // ============ 586 - Termoelektrana ============
+                // ============ 586 - Termoelektrana (4 polaska) ============
                 { time: "05:00", vehicle: "P71210", line: "586", destination: "Termoelektrana" },
                 { time: "12:00", vehicle: "P71210", line: "586", destination: "Termoelektrana" },
                 { time: "14:00", vehicle: "P71210", line: "586", destination: "Termoelektrana" },
                 { time: "16:00", vehicle: "P71210", line: "586", destination: "Termoelektrana" },
 
-                // ============ 591 - Taraiš okretnica ============
+                // ============ 591 - Taraiš okretnica (14 polazaka) ============
                 { time: "05:00", vehicle: "P70409", line: "591", destination: "Taraiš" },
                 { time: "05:30", vehicle: "P76438", line: "591", destination: "Taraiš" },
                 { time: "06:30", vehicle: "P79443", line: "591", destination: "Taraiš" },
@@ -625,7 +590,7 @@
                 { time: "19:30", vehicle: "P70409", line: "591", destination: "Taraiš" },
                 { time: "20:00", vehicle: "P76428", line: "591", destination: "Taraiš" },
 
-                // ============ 592 - Draževac okretnica ============
+                // ============ 592 - Draževac okretnica (7 polazaka) ============
                 { time: "07:00", vehicle: "P71210", line: "592", destination: "Draževac" },
                 { time: "08:30", vehicle: "P70409", line: "592", destination: "Draževac" },
                 { time: "10:30", vehicle: "P76438", line: "592", destination: "Draževac" },
@@ -634,31 +599,15 @@
                 { time: "19:00", vehicle: "P70412", line: "592", destination: "Draževac" },
                 { time: "20:00", vehicle: "P76438", line: "592", destination: "Draževac" },
 
-                // ============ 593a - Rašića kraj ============
+                // ============ 593a - Rašića kraj (1 polazak) ============
                 { time: "06:00", vehicle: "P70412", line: "593a", destination: "Rašića kraj" }
-            ],
+            ]
         };
-
-        // Uklanjanje duplikata
-        function removeDuplicates(data) {
-            const seen = new Set();
-            return data.filter(dep => {
-                const key = `${dep.time}-${dep.vehicle}-${dep.line}`;
-                if (seen.has(key)) {
-                    return false;
-                }
-                seen.add(key);
-                return true;
-            });
-        }
-
-        scheduleData.banovoToBarajevo = removeDuplicates(scheduleData.banovoToBarajevo);
-        scheduleData.barajevoToBanovo = removeDuplicates(scheduleData.barajevoToBanovo);
 
         let activeTooltip = null;
 
         // Generisanje reda vožnje
-        function generateSchedule(containerId, data, direction) {
+        function generateSchedule(containerId, data) {
             const container = document.getElementById(containerId);
             
             const hourlyData = {};
@@ -667,26 +616,26 @@
                 if (!hourlyData[hour]) {
                     hourlyData[hour] = [];
                 }
-                hourlyData[hour].push({ minute, vehicle: dep.vehicle, line: dep.line, destination: dep.destination });
+                hourlyData[hour]. push({ minute, vehicle: dep. vehicle, line: dep.line, destination: dep.destination });
             });
 
             // Sortiranje po satima
-            const sortedHours = Object.keys(hourlyData).sort((a, b) => {
+            const sortedHours = Object.keys(hourlyData). sort((a, b) => {
                 return parseInt(a) - parseInt(b);
             });
 
             let html = '';
             sortedHours.forEach(hour => {
-                const minutes = hourlyData[hour].sort((a, b) => parseInt(a.minute) - parseInt(b.minute));
+                const minutes = hourlyData[hour]. sort((a, b) => parseInt(a.minute) - parseInt(b. minute));
                 html += `
                     <div class="hour-row">
                         <div class="hour-cell">${hour}</div>
                         <div class="minutes-cell">
                             ${minutes.map(m => `
-                                <span class="minute-badge line-${m.line.replace(/\s/g, '')}" 
-                                      data-time="${hour}:${m.minute}" 
+                                <span class="minute-badge line-${m.line. replace(/\s/g, '')}" 
+                                      data-time="${hour}:${m. minute}" 
                                       data-vehicle="${m.vehicle}"
-                                      data-line="${m.line}"
+                                      data-line="${m. line}"
                                       data-destination="${m.destination}"
                                       onclick="toggleTooltip(event, this)">
                                     <span class="minute">${m.minute}</span>
@@ -708,11 +657,11 @@
 
         // Statistike
         function updateStats() {
-            const totalDepartures = scheduleData.banovoToBarajevo.length + scheduleData.barajevoToBanovo.length;
+            const totalDepartures = scheduleData.banovoPolasci. length;
             document.getElementById('totalDepartures').textContent = totalDepartures;
 
             const allVehicles = new Set();
-            [...scheduleData.banovoToBarajevo, ...scheduleData.barajevoToBanovo].forEach(dep => {
+            scheduleData.banovoPolasci. forEach(dep => {
                 allVehicles.add(dep.vehicle);
             });
             document.getElementById('totalVehicles').textContent = allVehicles.size;
@@ -724,27 +673,25 @@
             
             const tooltip = element.querySelector('.tooltip');
             
-            // Zatvori prethodni tooltip
             if (activeTooltip && activeTooltip !== tooltip) {
-                activeTooltip.classList.remove('show');
+                activeTooltip. classList.remove('show');
             }
             
-            // Toggle trenutni
             tooltip.classList.toggle('show');
-            activeTooltip = tooltip.classList.contains('show') ? tooltip : null;
+            activeTooltip = tooltip. classList.contains('show') ? tooltip : null;
         }
 
         // Zatvori tooltip klikom bilo gde
-        document.addEventListener('click', function(e) {
-            if (activeTooltip && ! e.target.closest('.minute-badge')) {
-                activeTooltip.classList.remove('show');
+        document. addEventListener('click', function(e) {
+            if (activeTooltip && ! e.target.closest('. minute-badge')) {
+                activeTooltip. classList.remove('show');
                 activeTooltip = null;
             }
         });
 
         // Pretraga vozila
         function searchVehicle() {
-            const query = document.getElementById('vehicleSearch').value.trim().toUpperCase();
+            const query = document.getElementById('vehicleSearch').value.trim(). toUpperCase();
             const resultsContainer = document.getElementById('searchResults');
 
             if (!query) {
@@ -754,22 +701,22 @@
 
             const allVehicles = new Map();
             
-            [...scheduleData.banovoToBarajevo, ...scheduleData.barajevoToBanovo].forEach(dep => {
-                if (dep.vehicle.toUpperCase().includes(query)) {
-                    if (!allVehicles.has(dep.vehicle)) {
-                        allVehicles.set(dep.vehicle, 0);
+            scheduleData. banovoPolasci.forEach(dep => {
+                if (dep.vehicle. toUpperCase().includes(query)) {
+                    if (!allVehicles.has(dep. vehicle)) {
+                        allVehicles.set(dep. vehicle, 0);
                     }
-                    allVehicles.set(dep.vehicle, allVehicles.get(dep.vehicle) + 1);
+                    allVehicles.set(dep.vehicle, allVehicles. get(dep.vehicle) + 1);
                 }
             });
 
             if (allVehicles.size === 0) {
                 resultsContainer.innerHTML = '<div class="search-result-item"><span>Vozilo nije pronađeno</span></div>';
-                resultsContainer.classList.add('show');
+                resultsContainer.classList. add('show');
                 return;
             }
 
-            const sortedVehicles = [...allVehicles.entries()].sort((a, b) => b[1] - a[1]);
+            const sortedVehicles = [... allVehicles. entries()].sort((a, b) => b[1] - a[1]);
 
             let html = '';
             sortedVehicles.forEach(([vehicle, count]) => {
@@ -791,8 +738,8 @@
                 b.classList.remove('highlighted');
             });
 
-            document.querySelectorAll('.minute-badge').forEach(b => {
-                if (b.dataset.vehicle === vehicle) {
+            document.querySelectorAll('.minute-badge'). forEach(b => {
+                if (b.dataset. vehicle === vehicle) {
                     b.classList.add('highlighted');
                 }
             });
@@ -816,7 +763,7 @@
 
         // Live pretraga
         document.getElementById('vehicleSearch').addEventListener('input', function() {
-            if (this.value.length >= 2) {
+            if (this.value. length >= 2) {
                 searchVehicle();
             } else {
                 document.getElementById('searchResults').classList.remove('show');
@@ -824,8 +771,7 @@
         });
 
         // Inicijalizacija
-        generateSchedule('schedule-banovo', scheduleData.banovoToBarajevo, 'Banovo Brdo → Barajevo');
-        generateSchedule('schedule-barajevo', scheduleData.barajevoToBanovo, 'Barajevo → Banovo Brdo');
+        generateSchedule('schedule-banovo', scheduleData.banovoPolasci);
         updateStats();
     </script>
 </body>
