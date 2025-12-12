@@ -11,7 +11,6 @@ export default async function handler(req, res) {
 
   // ===== GET za čitanje podataka =====
   if (req.method === 'GET') {
-    // Proveri da li se traže jučerašnji podaci
     const isYesterdayRequest = req.query.yesterday === 'true';
     const sheetName = isYesterdayRequest ? 'Juce' : 'Polasci';
     
@@ -140,11 +139,8 @@ export default async function handler(req, res) {
 
     console.log(`Today's date: ${todayDate}, Current time: ${currentHour}:${currentMinute}`);
 
-    // Grupisanje po linijama i smerovima - samo današnja vozila sa prošlim polascima
-    const routeMap = {};
-    let skippedOld = 0;
-    let skippedFuture = 0;
-    let processedToday = 0;
+    // NOVA LOGIKA: Prvo grupiši po vozilu da uzmeš samo najkasniji polazak
+    const vehicleLatestDeparture = new Map();
     
     bazaRows.forEach(row => {
       const vozilo = row[0] || '';
@@ -154,34 +150,67 @@ export default async function handler(req, res) {
       const timestamp = row[4] || '';
       const datumFull = row[5] || '';
 
-      if (!linija || !polazak || !smer) return;
+      if (!vozilo || !linija || !polazak || !smer) return;
 
       const datum = datumFull.split(' ')[0].trim();
       
-      if (datum !== todayDate) {
-        skippedOld++;
-        return;
-      }
+      // Samo današnja vozila
+      if (datum !== todayDate) return;
       
       const polazakParts = polazak.split(':');
-const polazakHour = parseInt(polazakParts[0]) || 0;
-const polazakMinute = parseInt(polazakParts[1]) || 0;
-const polazakTimeInMinutes = polazakHour * 60 + polazakMinute;
+      const polazakHour = parseInt(polazakParts[0]) || 0;
+      const polazakMinute = parseInt(polazakParts[1]) || 0;
+      const polazakTimeInMinutes = polazakHour * 60 + polazakMinute;
 
-// Specijalna logika za noćne linije (nakon ponoći)
-// Ako je trenutno vreme između 00:00 i 04:00, a polazak je posle 22:00,
-// to je noćna linija koja je počela juče i treba je uključiti
-const isNightTime = currentHour >= 0 && currentHour < 1;
-const isLateEvening = polazakHour >= 22;
+      // Specijalna logika za noćne linije
+      const isNightTime = currentHour >= 0 && currentHour < 1;
+      const isLateEvening = polazakHour >= 22;
 
-if (isNightTime && isLateEvening) {
-  // Ovo je noćna linija, dozvoli je
-  processedToday++;
-} else if (polazakTimeInMinutes > currentTimeInMinutes) {
-  skippedFuture++;
-  return;
-}
+      if (isNightTime && isLateEvening) {
+        // OK, noćna linija
+      } else if (polazakTimeInMinutes > currentTimeInMinutes) {
+        // Skip budući polasci
+        return;
+      }
 
+      // Proveri da li već postoji unos za ovo vozilo
+      const vehicleKey = `${vozilo}|${linija}|${smer}`;
+      
+      if (!vehicleLatestDeparture.has(vehicleKey)) {
+        vehicleLatestDeparture.set(vehicleKey, {
+          vozilo,
+          linija,
+          polazak,
+          smer,
+          timestamp,
+          polazakTimeInMinutes
+        });
+      } else {
+        // Ako postoji, uporedi vremena i zadrži kasniji polazak
+        const existing = vehicleLatestDeparture.get(vehicleKey);
+        if (polazakTimeInMinutes > existing.polazakTimeInMinutes) {
+          vehicleLatestDeparture.set(vehicleKey, {
+            vozilo,
+            linija,
+            polazak,
+            smer,
+            timestamp,
+            polazakTimeInMinutes
+          });
+          console.log(`🔄 Replacing ${vozilo}: ${existing.polazak} → ${polazak} (later departure)`);
+        }
+      }
+    });
+
+    console.log(`Deduplicated to ${vehicleLatestDeparture.size} unique vehicles`);
+
+    // Grupisanje po linijama i smerovima - sada iz deduplikovanih podataka
+    const routeMap = {};
+    let processedToday = 0;
+    
+    vehicleLatestDeparture.forEach(entry => {
+      const { vozilo, linija, polazak, smer, timestamp } = entry;
+      
       if (!routeMap[linija]) {
         routeMap[linija] = {};
       }
@@ -195,10 +224,11 @@ if (isNightTime && isLateEvening) {
         vehicleLabel: vozilo,
         timestamp: timestamp
       });
+      
+      processedToday++;
     });
 
     console.log(`Processed ${processedToday} valid departures`);
-    console.log(`Skipped: ${skippedOld} old dates, ${skippedFuture} future departures`);
     console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     if (Object.keys(routeMap).length === 0) {
