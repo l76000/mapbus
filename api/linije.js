@@ -134,9 +134,10 @@ export default function handler(req, res) {
     <script>
 
         const map = L.map('map', { zoomControl: false }).setView([44.8125, 20.4612], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; CARTO'
-        }).addTo(map);
+       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; CARTO, &copy; OpenStreetMap contributors',
+    maxZoom: 20
+}).addTo(map);
  
         L.control.zoom({ position: 'bottomright' }).addTo(map);
  
