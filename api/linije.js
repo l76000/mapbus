@@ -134,10 +134,10 @@ export default function handler(req, res) {
     <script>
 
         const map = L.map('map', { zoomControl: false }).setView([44.8125, 20.4612], 13);
-       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-    attribution: '&copy; CARTO, &copy; OpenStreetMap contributors',
-    maxZoom: 20
-}).addTo(map);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CARTO, &copy; OpenStreetMap contributors',
+            maxZoom: 20
+        }).addTo(map);
  
         L.control.zoom({ position: 'bottomright' }).addTo(map);
  
@@ -272,9 +272,9 @@ export default function handler(req, res) {
 
         async function loadShapes() {
             try {
-               const [shapesResponse, shapesGradskeResponse] = await Promise.all([
-  fetch('/data/shapes.txt'),
-  fetch('/data/shapes_gradske.txt')
+                const [shapesResponse, shapesGradskeResponse] = await Promise.all([
+                    fetch('/data/shapes.txt'),
+                    fetch('/data/shapes_gradske.txt')
                 ]);
                 
                 const shapesText = await shapesResponse.text();
@@ -531,6 +531,15 @@ export default function handler(req, res) {
             let destinations = new Set();
             let destinationInfo = {};
  
+            vozila.forEach(v => {
+                const route = normalizeRouteId(v.routeId);
+                const vehicleId = v.id;
+                
+                const destId = vehicleDestinations[vehicleId] || "Unknown";
+                const normalizedId = normalizeStopId(destId);
+                const uniqueDirKey = \`\${route}_\${destId}\`;
+                
+                const color = directionColorMap[uniqueDirKey];
                 
                 destinations.add(destId);
                 destinationInfo[destId] = {
@@ -587,7 +596,7 @@ export default function handler(req, res) {
                 const station = stationsMap[normalizedId];
                 const destName = station ? station.name : destId;
                 
-                // Dodaj delay logiku OVDE
+                // Dodaj delay logiku
                 const delay = vehicleDelays[id];
                 let delayText = '';
                 
@@ -642,16 +651,16 @@ export default function handler(req, res) {
                     iconAnchor: [25, 28]
                 });
  
-                const popupContent = `
+                const popupContent = \`
                     <div class="popup-content">
-                        <div class="popup-row"><span class="popup-label">Linija:</span> <b>${routeDisplayName}</b></div>
-                        <div class="popup-row"><span class="popup-label">Garažni:</span> ${label}</div>
+                        <div class="popup-row"><span class="popup-label">Linija:</span> <b>\${routeDisplayName}</b></div>
+                        <div class="popup-row"><span class="popup-label">Garažni:</span> \${label}</div>
                         <hr style="margin: 5px 0; border-color:#eee;">
-                        <div class="popup-row"><span class="popup-label">Polazak:</span> <b>${startTime}</b></div>
-                        <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:${color}; font-weight:bold;">${destName}</span></div>
-                        ${delayText}
+                        <div class="popup-row"><span class="popup-label">Polazak:</span> <b>\${startTime}</b></div>
+                        <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:\${color}; font-weight:bold;">\${destName}</span></div>
+                        \${delayText}
                     </div>
-                `;
+                \`;
  
                 L.marker([lat, lon], {icon: icon})
                     .bindPopup(popupContent)
@@ -767,60 +776,42 @@ export default function handler(req, res) {
             }, seconds * 1000);
         }
 
- function checkUrlParameter() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const lineParam = urlParams.get('line');
-    
-    if (lineParam) {
-        document.getElementById('lineInput').value = lineParam;
-        // Sačekaj da se učitaju route names pa dodaj liniju
-        setTimeout(() => {
-            dodajLiniju();
-        }, 1000);
-    }
-}
+        // ====== AUTOMATSKO UČITAVANJE LINIJE IZ URL-a ======
+        let urlLineLoaded = false;
 
-// Pozovi pri učitavanju stranice
-setTimeout(checkUrlParameter, 1500);
-
-// ====== AUTOMATSKO UČITAVANJE LINIJE IZ URL-a ======
-let urlLineLoaded = false; // Flag da sprečimo duplo učitavanje
-
-function checkUrlParameter() {
-    if (urlLineLoaded) return; // Već učitano, izađi
-    
-    const urlParams = new URLSearchParams(window.location.search);
-    const lineParam = urlParams.get('line');
-    
-    if (lineParam) {
-        const waitForRouteNames = setInterval(() => {
-            if (Object.keys(routeNamesMap).length > 0) {
-                clearInterval(waitForRouteNames);
+        function checkUrlParameter() {
+            if (urlLineLoaded) return;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const lineParam = urlParams.get('line');
+            
+            if (lineParam) {
+                const waitForRouteNames = setInterval(() => {
+                    if (Object.keys(routeNamesMap).length > 0) {
+                        clearInterval(waitForRouteNames);
+                        
+                        if (urlLineLoaded) return;
+                        urlLineLoaded = true;
+                        
+                        const routeId = findRouteId(lineParam);
+                        if (routeId && !izabraneLinije.includes(routeId)) {
+                            document.getElementById('lineInput').value = lineParam;
+                            dodajLiniju();
+                        }
+                        
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                }, 200);
                 
-                if (urlLineLoaded) return; // Još jedna provera
-                urlLineLoaded = true;
-                
-                // Proveri da li je linija već dodata
-                const routeId = findRouteId(lineParam);
-                if (routeId && ! izabraneLinije.includes(routeId)) {
-                    document.getElementById('lineInput').value = lineParam;
-                    dodajLiniju();
-                }
-                
-                // Očisti URL parametar bez refresha
-                window.history.replaceState({}, document.title, window.location.pathname);
+                setTimeout(() => {
+                    clearInterval(waitForRouteNames);
+                }, 5000);
             }
-        }, 200);
-        
-        setTimeout(() => {
-            clearInterval(waitForRouteNames);
-        }, 5000);
-    }
-}
+        }
 
-document.addEventListener('DOMContentLoaded', function() {
-    setTimeout(checkUrlParameter, 500);
-});
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(checkUrlParameter, 500);
+        });
     </script>
 </body>
 </html>
