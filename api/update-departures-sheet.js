@@ -204,8 +204,6 @@ export default async function handler(req, res) {
 
     console.log(`Deduplicated to ${vehicleLatestDeparture.size} unique vehicles`);
 
-    // Grupisanje po linijama i smerovima - sada iz deduplikovanih podataka
-    // Grupisanje direktno - bez deduplikacije po vozilu
 const routeMap = {};
 let processedToday = 0;
 
@@ -223,24 +221,8 @@ bazaRows.forEach(row => {
   
   // Samo današnja vozila
   if (datum !== todayDate) return;
-  
-  const polazakParts = polazak.split(':');
-  const polazakHour = parseInt(polazakParts[0]) || 0;
-  const polazakMinute = parseInt(polazakParts[1]) || 0;
-  const polazakTimeInMinutes = polazakHour * 60 + polazakMinute;
 
-  // Specijalna logika za noćne linije
-  const isNightTime = currentHour >= 0 && currentHour < 1;
-  const isLateEvening = polazakHour >= 22;
-
-  if (isNightTime && isLateEvening) {
-    // OK, noćna linija
-  } else if (polazakTimeInMinutes > currentTimeInMinutes) {
-    // Skip budući polasci
-    return;
-  }
-
-  // Dodaj direktno u routeMap - BEZ deduplikacije
+  // Dodaj direktno u routeMap - BEZ deduplikacije i BEZ vremenskog filtera
   if (!routeMap[linija]) {
     routeMap[linija] = {};
   }
@@ -259,7 +241,7 @@ bazaRows.forEach(row => {
 });
 
 console.log(`Processed ${processedToday} valid departures`);
-    console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
+console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     if (Object.keys(routeMap).length === 0) {
       return res.status(200).json({
