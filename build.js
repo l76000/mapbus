@@ -15,6 +15,7 @@ if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
 console.log('📁 Converting API routes...\n');
 
 const apiFiles = {
+  'api/auth.js': 'src/handlers/auth.js',
   'api/vehicles.js': 'src/handlers/vehicles.js',
   'api/get-sheet-data.js': 'src/handlers/get-sheet-data.js',
   'api/update-sheet.js': 'src/handlers/update-sheet.js',
@@ -119,6 +120,24 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   if (content.includes('google.sheets') || content.includes('sheets.spreadsheets')) {
     content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
     content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
+  }
+  
+  // Add crypto utilities for auth handler
+  if (source.includes('auth.js') && content.includes('crypto.createHash')) {
+    content = `import { hashPassword, verifyPassword } from '../utils/crypto-utils.js';\n\n` + content;
+    // Remove the local hash/verify functions since we'll import them
+    content = content.replace(/function hashPassword\(password\) {[^}]+}/g, '');
+    content = content.replace(/function verifyPassword\(password, hashedPassword\) {[^}]+}/g, '');
+    // Remove calls to crypto.createHash
+    content = content.replace(/crypto\.createHash\([^)]+\)[^;]+;/g, '');
+  }
+  
+  // Replace Google Auth setup in auth.js
+  if (source.includes('auth.js')) {
+    content = content.replace(/const auth = new google\.auth\.GoogleAuth\([^;]+\);/g, '');
+    content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, '');
+    content = content.replace(/const SPREADSHEET_ID = process\.env\.GOOGLE_SPREADSHEET_ID;?/g, '');
+    content = content.replace(/const USERS_SHEET = ['"]Users['"];?/g, '');
   }
   
   // Add data loader for file reading
@@ -450,6 +469,26 @@ function base64Decode(base64) {
 
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
+
+// crypto-utils.js for auth
+const cryptoUtilsContent = `// src/utils/crypto-utils.js
+// Crypto utilities for Cloudflare Workers
+
+export async function hashPassword(password) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+export async function verifyPassword(password, hashedPassword) {
+  const hash = await hashPassword(password);
+  return hash === hashedPassword;
+}`;
+
+fs.writeFileSync('src/utils/crypto-utils.js', cryptoUtilsContent);
+console.log('✓ Created src/utils/crypto-utils.js');
 
 // =====================================================
 // STEP 3: Bundle static assets
