@@ -22,6 +22,11 @@ const apiFiles = {
   'api/linije.js': 'src/linije.js',
 };
 
+if (dest === 'src/handlers/auth.js') {
+    console.log(`⏩ Skipped ${source} (using pre-built version)`);
+    return;
+  }
+  
 if (!fs.existsSync('src')) fs.mkdirSync('src');
 if (!fs.existsSync('src/handlers')) fs.mkdirSync('src/handlers');
 
