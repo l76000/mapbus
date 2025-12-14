@@ -1,11 +1,6 @@
-name = "mapabus"
+name = "mapbus"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
-
-# KV za keširanje velikih fajlova
-[[kv_namespaces]]
-binding = "DATA_CACHE"
-id = "kreira_se_automatski_pri_prvom_deploy"
 
 # Secrets (postavi kroz: wrangler secret put SECRET_NAME)
 # GOOGLE_SHEETS_CLIENT_EMAIL
