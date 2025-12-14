@@ -134,9 +134,11 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   
   // Replace Google Auth setup in auth.js
   if (source.includes('auth.js')) {
-    content = content.replace(/const auth = new google\.auth\.GoogleAuth\([^;]+\);/g, '');
+    // Remove all module-level Google setup code
+    content = content.replace(/\/\/ Google Sheets setup[\s\S]*?const USERS_SHEET = ['"]Users['"];?/g, '');
+    content = content.replace(/const auth = new google\.auth\.GoogleAuth\([^;]+\);?/gs, '');
     content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, '');
-    content = content.replace(/const SPREADSHEET_ID = process\.env\.GOOGLE_SPREADSHEET_ID;?/g, '');
+    content = content.replace(/const SPREADSHEET_ID = (?:process\.)?env\.GOOGLE_SPREADSHEET_ID;?/g, '');
     content = content.replace(/const USERS_SHEET = ['"]Users['"];?/g, '');
   }
   
