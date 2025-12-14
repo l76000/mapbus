@@ -1,4 +1,9 @@
 export default async function handler(req, res) {
+  const isAuthenticated = req.session?.user || req.cookies?.authToken;
+  
+  if (!isAuthenticated) {
+    return res.status(401).json({ error: 'Unauthorized' }); // Vrati JSON grešku
+  }
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET');
   res.setHeader('Content-Type', 'application/json');
