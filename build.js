@@ -45,10 +45,16 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join('');
   
-  // Replace export default
+  // Replace export default function handler
   content = content.replace(
     /export default async function handler\s*\(/g,
     `export async function ${handlerName}(`
+  );
+  
+  // Also handle non-async handlers
+  content = content.replace(
+    /export default function handler\s*\(/g,
+    `export function ${handlerName}(`
   );
   
   // Replace req/res with request
@@ -80,6 +86,17 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   content = content.replace(
     /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
     'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+  );
+  
+  // Replace res.setHeader and res.send
+  content = content.replace(/res\.setHeader\s*\([^)]+\)\s*;?\s*/g, '');
+  content = content.replace(
+    /res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response($2, { status: $1, headers: { "Content-Type": "text/html; charset=utf-8" } })'
+  );
+  content = content.replace(
+    /res\.send\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response($1, { headers: { "Content-Type": "text/html; charset=utf-8" } })'
   );
   
   // Replace process.env with env
@@ -178,6 +195,90 @@ export async function fetchDataFile(filePath, env) {
 
 fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
 console.log('✓ Created src/utils/data-loader.js');
+
+// Create fallback handlers for stations and config
+console.log('✓ Creating fallback handlers...');
+
+// stations.js fallback
+const stationsHandler = `// src/handlers/stations.js
+import { fetchDataFile } from '../utils/data-loader.js';
+
+export async function handleStations(request, env) {
+  try {
+    // Fetch stops files
+    const [stopsText, stopsGradskeText] = await Promise.all([
+      fetchDataFile('api/stops.txt', env),
+      fetchDataFile('api/stops_gradske.txt', env)
+    ]);
+
+    const stationsMap = {};
+
+    // Parse stops.txt
+    parseStopsCSV(stopsText, stationsMap);
+    parseStopsCSV(stopsGradskeText, stationsMap);
+
+    return new Response(JSON.stringify(stationsMap), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    console.error('Stations error:', error);
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+function parseStopsCSV(csvText, stationsMap) {
+  const lines = csvText.split('\\n');
+  
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    
+    const parts = line.split(',');
+    if (parts.length < 5) continue;
+    
+    const stopId = parts[0];
+    const stopName = parts[2] || parts[1];
+    const lat = parseFloat(parts[4]);
+    const lon = parseFloat(parts[5]);
+    
+    if (!isNaN(lat) && !isNaN(lon)) {
+      stationsMap[stopId] = {
+        name: stopName,
+        coords: [lat, lon]
+      };
+    }
+  }
+}`;
+
+fs.writeFileSync('src/handlers/stations.js', stationsHandler);
+console.log('✓ Created src/handlers/stations.js');
+
+// config.js fallback
+const configHandler = `// src/handlers/config.js
+export async function handleConfig(request, env) {
+  const config = {
+    refreshInterval: 60000,
+    mapCenter: [44.8125, 20.4612],
+    mapZoom: 13,
+    colors: [
+      '#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f',
+      '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
+      '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
+    ]
+  };
+
+  return new Response(JSON.stringify(config), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
+}`;
+
+fs.writeFileSync('src/handlers/config.js', configHandler);
+console.log('✓ Created src/handlers/config.js');
 
 // sheets-client.js
 const sheetsClientContent = `// src/utils/sheets-client.js
