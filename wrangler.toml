@@ -2,14 +2,10 @@ name = "mapabus"
 main = "src/index.js"
 compatibility_date = "2024-01-01"
 
-[vars]
-# Environment varijable - postavi kroz Cloudflare Dashboard
-# ili kroz wrangler secret put
-
-# KV namespace samo za cache
-kv_namespaces = [
-  { binding = "CACHE", id = "your_kv_namespace_id" }
-]
+# KV za keširanje velikih fajlova
+[[kv_namespaces]]
+binding = "DATA_CACHE"
+id = "kreira_se_automatski_pri_prvom_deploy"
 
 # Secrets (postavi kroz: wrangler secret put SECRET_NAME)
 # GOOGLE_SHEETS_CLIENT_EMAIL
