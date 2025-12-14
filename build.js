@@ -1,10 +1,10 @@
-// build.js - Automatski konvertuje Vercel projekat u Cloudflare Worker
+// build.js - Optimized: Only bundle SMALL files, exclude large GTFS data
 const fs = require('fs');
 const path = require('path');
 
 console.log('🚀 Building MapaBus for Cloudflare Workers...\n');
 
-// 1. Kopiraj sve handlere iz api/ u src/handlers/
+// 1. Convert API handlers
 console.log('📁 Converting API routes...');
 
 const apiFiles = {
@@ -20,10 +20,8 @@ const apiFiles = {
   'api/config.js': 'src/handlers/config.js',
   'api/sve.js': 'src/handlers/sve.js',
   'api/linije.js': 'src/linije.js',
-  'parse-routes.js': 'src/handlers/config.js'
 };
 
-// Kreiraj src/handlers direktorijum
 if (!fs.existsSync('src')) fs.mkdirSync('src');
 if (!fs.existsSync('src/handlers')) fs.mkdirSync('src/handlers');
 
@@ -31,17 +29,12 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   if (fs.existsSync(source)) {
     let content = fs.readFileSync(source, 'utf8');
     
-    // TRANSFORMACIJE:
-    
-    // 1. Ukloni Node.js imports koji ne rade u Workers
+    // Remove Node.js imports
     content = content.replace(/import\s+crypto\s+from\s+['"]crypto['"]\s*;?\s*/g, '');
     content = content.replace(/import\s+fs\s+from\s+['"]fs['"]\s*;?\s*/g, '');
     content = content.replace(/import\s+path\s+from\s+['"]path['"]\s*;?\s*/g, '');
-    content = content.replace(/const\s+crypto\s*=\s*require\(['"]crypto['"]\)\s*;?\s*/g, '');
-    content = content.replace(/const\s+fs\s*=\s*require\(['"]fs['"]\)\s*;?\s*/g, '');
-    content = content.replace(/const\s+path\s*=\s*require\(['"]path['"]\)\s*;?\s*/g, '');
     
-    // 2. Zameni "export default async function handler" sa "export async function handleX"
+    // Generate handler name
     const handlerName = path.basename(dest, '.js')
       .split('-')
       .map((word, i) => i === 0 ? 'handle' + word.charAt(0).toUpperCase() + word.slice(1) : word.charAt(0).toUpperCase() + word.slice(1))
@@ -52,46 +45,34 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
       `export async function ${handlerName}`
     );
     
-    // 3. Zameni req.method sa request.method
+    // Replace req/res with request/Response
     content = content.replace(/\breq\.method\b/g, 'request.method');
     content = content.replace(/\breq\.body\b/g, 'request.body');
     content = content.replace(/\breq\.query\b/g, 'request.query');
     content = content.replace(/\breq\.headers\b/g, 'request.headers');
     
-    // 4. Zameni res.status().json() - PAŽLJIVO!
-    // First pass: handle cases with explicit return
     content = content.replace(
       /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
       'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
     );
     
-    // Second pass: handle simple cases without return
     content = content.replace(
       /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
       'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
     );
     
-    // 5. Zameni process.env sa env
     content = content.replace(/process\.env\./g, 'env.');
     
-    // 6. Zameni fs.readFileSync sa inline data iz STATIC_ASSETS
+    // Replace fs.readFileSync with KV fetch
     if (content.includes('fs.readFileSync')) {
+      content = `import { fetchDataFile } from '../utils/data-loader.js';\n` + content;
       content = content.replace(
-        /const\s+\w+\s*=\s*fs\.readFileSync\([^)]+\)\s*\.toString\(\)\s*;?/g,
-        '// Data loaded from STATIC_ASSETS'
-      );
-      content = content.replace(
-        /fs\.readFileSync\(([^)]+)\)\.toString\(\)/g,
-        'STATIC_ASSETS[$1] || ""'
+        /fs\.readFileSync\(['"]([^'"]+)['"]\)\.toString\(\)/g,
+        'await fetchDataFile("$1", env)'
       );
     }
     
-    // 7. Dodaj import za STATIC_ASSETS ako koristi fajlove
-    if (content.includes('STATIC_ASSETS')) {
-      content = `import { STATIC_ASSETS } from '../assets.js';\n` + content;
-    }
-    
-    // 8. Dodaj import za Google Sheets client ako koristi
+    // Add Google Sheets client import
     if (content.includes('google.sheets')) {
       content = `import { getSheetsClient } from '../utils/sheets-client.js';\n` + content;
       content = content.replace(/const sheets = google\.sheets\([^)]+\);/g, 'const sheets = await getSheetsClient(env);');
@@ -105,8 +86,8 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   }
 });
 
-// 2. Bundle static assets
-console.log('\n📦 Bundling static assets...');
+// 2. Bundle ONLY small static assets (HTML, JS, small JSON)
+console.log('\n📦 Bundling small static assets...');
 
 const staticFiles = [
   'public/index.html',
@@ -125,18 +106,8 @@ const staticFiles = [
   'public/auth-check.js',
   'public/app.min.js',
   'public/route-mapping.json',
-  'public/all.json',
-  'public/data/shapes.txt',
-  'public/data/shapes_gradske.txt',
-  'api/stop_times.txt',
-  'api/stops.txt',
-  'api/stops_gradske.txt',
-  'api/trips.txt',
-  'api/trips_gradske.txt',
-  'api/lista/lista.txt',
-  'api/all.json',
-  'public/alll.json',
   'api/trasa.html'
+  // NOTE: Large files (shapes.txt, stops.txt, etc.) will be fetched from external URL
 ];
 
 const assets = {};
@@ -152,7 +123,7 @@ staticFiles.forEach(file => {
   }
 });
 
-// 3. Generiši assets.js
+// 3. Generate assets.js
 console.log('\n📝 Generating assets...');
 
 const assetsContent = `// Auto-generated static assets
@@ -161,12 +132,80 @@ export const STATIC_ASSETS = ${JSON.stringify(assets, null, 2)};`;
 fs.writeFileSync('src/assets.js', assetsContent);
 console.log('✓ Generated src/assets.js');
 
-// 4. Kreiraj utils/sheets-client.js
+// 4. Create data-loader utility
 console.log('\n🔧 Creating utilities...');
 
-const sheetsClientContent = `// src/utils/sheets-client.js
-// Google Sheets API client za Cloudflare Workers
+const dataLoaderContent = `// src/utils/data-loader.js
+// Loads large data files from external source (Vercel deployment or R2)
 
+const DATA_BASE_URL = 'https://mapabus.vercel.app';
+
+// Map local paths to remote URLs
+const FILE_MAP = {
+  'api/shapes.txt': '/api/shapes.txt',
+  'api/shapes_gradske.txt': '/api/shapes_gradske.txt',
+  'api/stop_times.txt': '/api/stop_times.txt',
+  'api/stops.txt': '/api/stops.txt',
+  'api/stops_gradske.txt': '/api/stops_gradske.txt',
+  'api/trips.txt': '/api/trips.txt',
+  'api/trips_gradske.txt': '/api/trips_gradske.txt',
+  'api/lista/lista.txt': '/api/lista/lista.txt',
+  'api/all.json': '/api/all.json',
+  'public/alll.json': '/alll.json',
+  'public/all.json': '/all.json',
+  'public/data/shapes.txt': '/data/shapes.txt',
+  'public/data/shapes_gradske.txt': '/data/shapes_gradske.txt'
+};
+
+export async function fetchDataFile(filePath, env) {
+  // Check if we should use KV cache
+  if (env.DATA_CACHE) {
+    try {
+      const cached = await env.DATA_CACHE.get(filePath);
+      if (cached) {
+        console.log(\`✓ Cache hit: \${filePath}\`);
+        return cached;
+      }
+    } catch (e) {
+      console.warn('KV cache error:', e);
+    }
+  }
+
+  // Fetch from remote
+  const remotePath = FILE_MAP[filePath] || '/' + filePath;
+  const url = DATA_BASE_URL + remotePath;
+  
+  console.log(\`⬇️  Fetching: \${url}\`);
+  
+  try {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(\`HTTP \${response.status}\`);
+    }
+    
+    const data = await response.text();
+    
+    // Cache for 1 hour
+    if (env.DATA_CACHE) {
+      try {
+        await env.DATA_CACHE.put(filePath, data, { expirationTtl: 3600 });
+      } catch (e) {
+        console.warn('KV cache write error:', e);
+      }
+    }
+    
+    return data;
+  } catch (error) {
+    console.error(\`Failed to fetch \${filePath}:\`, error);
+    throw new Error(\`Could not load data file: \${filePath}\`);
+  }
+}`;
+
+fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
+console.log('✓ Created src/utils/data-loader.js');
+
+// 5. Create sheets-client.js (same as before)
+const sheetsClientContent = `// src/utils/sheets-client.js
 export async function getSheetsClient(env) {
   const accessToken = await getAccessToken(env);
   
@@ -317,7 +356,7 @@ if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
 
-// 5. Ažuriraj index.js da koristi assets
+// 6. Update index.js
 console.log('\n🔗 Updating index.js...');
 
 let indexContent = fs.readFileSync('src/index.js', 'utf8');
@@ -329,8 +368,11 @@ fs.writeFileSync('src/index.js', indexContent);
 console.log('✓ Updated src/index.js');
 
 console.log('\n✅ Build complete!');
-console.log('\n📝 Next steps:');
-console.log('1. wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
-console.log('2. wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
-console.log('3. wrangler secret put GOOGLE_SPREADSHEET_ID');
-console.log('4. wrangler deploy');
+console.log('\n📝 Strategy:');
+console.log('  - Small files: bundled in Worker');
+console.log('  - Large GTFS data: fetched from Vercel (cached in KV)');
+console.log('\n🔑 Set secrets:');
+console.log('  wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
+console.log('  wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
+console.log('  wrangler secret put GOOGLE_SPREADSHEET_ID');
+console.log('\n🚀 Deploy: wrangler deploy');
