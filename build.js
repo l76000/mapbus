@@ -71,9 +71,13 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     content = content.replace(/\breq\.body\b/g, 'body');
   }
   
-  // Parse query params properly
+  // Parse query params properly - inject inside function body only
   if (content.includes('request.query')) {
-    content = `const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);\n  ${content}`;
+    // Find the function body and inject query parsing there
+    content = content.replace(
+      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{)/,
+      '$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);'
+    );
     content = content.replace(/request\.query/g, 'query');
   }
   
