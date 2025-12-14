@@ -31,8 +31,17 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
   if (fs.existsSync(source)) {
     let content = fs.readFileSync(source, 'utf8');
     
-    // Transformacije:
-    // 1. Zameni "export default async function handler" sa "export async function handleX"
+    // TRANSFORMACIJE:
+    
+    // 1. Ukloni Node.js imports koji ne rade u Workers
+    content = content.replace(/import\s+crypto\s+from\s+['"]crypto['"]\s*;?\s*/g, '');
+    content = content.replace(/import\s+fs\s+from\s+['"]fs['"]\s*;?\s*/g, '');
+    content = content.replace(/import\s+path\s+from\s+['"]path['"]\s*;?\s*/g, '');
+    content = content.replace(/const\s+crypto\s*=\s*require\(['"]crypto['"]\)\s*;?\s*/g, '');
+    content = content.replace(/const\s+fs\s*=\s*require\(['"]fs['"]\)\s*;?\s*/g, '');
+    content = content.replace(/const\s+path\s*=\s*require\(['"]path['"]\)\s*;?\s*/g, '');
+    
+    // 2. Zameni "export default async function handler" sa "export async function handleX"
     const handlerName = path.basename(dest, '.js')
       .split('-')
       .map((word, i) => i === 0 ? 'handle' + word.charAt(0).toUpperCase() + word.slice(1) : word.charAt(0).toUpperCase() + word.slice(1))
@@ -43,31 +52,48 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
       `export async function ${handlerName}`
     );
     
-    // 2. Zameni req.method sa request.method
+    // 3. Zameni req.method sa request.method
     content = content.replace(/\breq\.method\b/g, 'request.method');
     content = content.replace(/\breq\.body\b/g, 'request.body');
     content = content.replace(/\breq\.query\b/g, 'request.query');
     content = content.replace(/\breq\.headers\b/g, 'request.headers');
     
-    // 3. Zameni res.status().json() sa new Response() - ISPRAVLJENO!
-    // Zameni "return res.status(X).json(Y)" sa "return new Response(...)"
+    // 4. Zameni res.status().json() - PAŽLJIVO!
+    // First pass: handle cases with explicit return
     content = content.replace(
-      /return\s+res\.status\((\d+)\)\.json\(([^)]+)\)/g,
+      /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
       'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
     );
     
-    // Zameni "res.status(X).json(Y)" (bez return) sa "return new Response(...)"
+    // Second pass: handle simple cases without return
     content = content.replace(
-      /(?<!return\s+)res\.status\((\d+)\)\.json\(([^)]+)\)/g,
+      /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
       'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
     );
     
-    // 4. Zameni process.env sa env
+    // 5. Zameni process.env sa env
     content = content.replace(/process\.env\./g, 'env.');
     
-    // 5. Dodaj import za Google Sheets client ako koristi
+    // 6. Zameni fs.readFileSync sa inline data iz STATIC_ASSETS
+    if (content.includes('fs.readFileSync')) {
+      content = content.replace(
+        /const\s+\w+\s*=\s*fs\.readFileSync\([^)]+\)\s*\.toString\(\)\s*;?/g,
+        '// Data loaded from STATIC_ASSETS'
+      );
+      content = content.replace(
+        /fs\.readFileSync\(([^)]+)\)\.toString\(\)/g,
+        'STATIC_ASSETS[$1] || ""'
+      );
+    }
+    
+    // 7. Dodaj import za STATIC_ASSETS ako koristi fajlove
+    if (content.includes('STATIC_ASSETS')) {
+      content = `import { STATIC_ASSETS } from '../assets.js';\n` + content;
+    }
+    
+    // 8. Dodaj import za Google Sheets client ako koristi
     if (content.includes('google.sheets')) {
-      content = `import { getSheetsClient } from '../utils/sheets-client';\n\n` + content;
+      content = `import { getSheetsClient } from '../utils/sheets-client.js';\n` + content;
       content = content.replace(/const sheets = google\.sheets\([^)]+\);/g, 'const sheets = await getSheetsClient(env);');
       content = content.replace(/import { google } from 'googleapis';/g, '');
     }
@@ -307,4 +333,4 @@ console.log('\n📝 Next steps:');
 console.log('1. wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
 console.log('2. wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
 console.log('3. wrangler secret put GOOGLE_SPREADSHEET_ID');
-console.log('4. npm run deploy (or wrangler deploy)');
+console.log('4. wrangler deploy');
