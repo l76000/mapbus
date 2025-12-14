@@ -1,14 +1,20 @@
-// build.js - Optimized: Only bundle SMALL files, exclude large GTFS data
+// build.js - FIXED Build System for Cloudflare Workers
 const fs = require('fs');
 const path = require('path');
 
 console.log('🚀 Building MapaBus for Cloudflare Workers...\n');
 
-// 1. Convert API handlers
-console.log('📁 Converting API routes...');
+// Ensure directories exist
+if (!fs.existsSync('src')) fs.mkdirSync('src');
+if (!fs.existsSync('src/handlers')) fs.mkdirSync('src/handlers');
+if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
+
+// =====================================================
+// STEP 1: Convert API handlers to Workers format
+// =====================================================
+console.log('📁 Converting API routes...\n');
 
 const apiFiles = {
-  'api/auth.js': 'src/handlers/auth.js',
   'api/vehicles.js': 'src/handlers/vehicles.js',
   'api/get-sheet-data.js': 'src/handlers/get-sheet-data.js',
   'api/update-sheet.js': 'src/handlers/update-sheet.js',
@@ -16,158 +22,118 @@ const apiFiles = {
   'api/reset-departures.js': 'src/handlers/reset-departures.js',
   'api/hourly-check.js': 'src/handlers/hourly-check.js',
   'api/stations.js': 'src/handlers/stations.js',
-  'api/shapes.js': 'src/handlers/shapes.js',
   'api/config.js': 'src/handlers/config.js',
-  'api/sve.js': 'src/handlers/sve.js',
-  'api/linije.js': 'src/linije.js',
 };
 
-
-  
-if (!fs.existsSync('src')) fs.mkdirSync('src');
-if (!fs.existsSync('src/handlers')) fs.mkdirSync('src/handlers');
-
 Object.entries(apiFiles).forEach(([source, dest]) => {
-  if (dest === 'src/handlers/auth.js') {
-    console.log(`⏩ Skipped ${source} (using pre-built version)`);
+  if (!fs.existsSync(source)) {
+    console.log(`⚠️  Skipped ${source} (not found)`);
     return;
   }
-  if (fs.existsSync(source)) {
-    let content = fs.readFileSync(source, 'utf8');
-    
-    // Remove Node.js imports
-    content = content.replace(/import\s+crypto\s+from\s+['"]crypto['"]\s*;?\s*/g, '');
-    content = content.replace(/import\s+fs\s+from\s+['"]fs['"]\s*;?\s*/g, '');
-    content = content.replace(/import\s+path\s+from\s+['"]path['"]\s*;?\s*/g, '');
-    
-    // Generate handler name
-    const handlerName = path.basename(dest, '.js')
-      .split('-')
-      .map((word, i) => i === 0 ? 'handle' + word.charAt(0).toUpperCase() + word.slice(1) : word.charAt(0).toUpperCase() + word.slice(1))
-      .join('');
-    
+  
+  let content = fs.readFileSync(source, 'utf8');
+  
+  // Remove Node.js imports
+  content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]crypto['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]fs['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]path['"]\s*;?\s*/g, '');
+  
+  // Generate handler name from filename
+  const handlerName = 'handle' + path.basename(dest, '.js')
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join('');
+  
+  // Replace export default
+  content = content.replace(
+    /export default async function handler\s*\(/g,
+    `export async function ${handlerName}(`
+  );
+  
+  // Replace req/res with request
+  content = content.replace(/\breq\.method\b/g, 'request.method');
+  content = content.replace(/\breq\.query\b/g, 'request.query');
+  content = content.replace(/\breq\.headers\b/g, 'request.headers');
+  
+  // Parse request body properly
+  if (content.includes('req.body')) {
     content = content.replace(
-      /export default async function handler/g,
-      `export async function ${handlerName}`
+      /const\s+{\s*([^}]+)\s*}\s*=\s*req\.body\s*;?/g,
+      'const body = await request.json();\n  const { $1 } = body;'
     );
-    
-    // Replace req/res with request/Response
-    content = content.replace(/\breq\.method\b/g, 'request.method');
-    content = content.replace(/\breq\.body\b/g, 'request.body');
-    content = content.replace(/\breq\.query\b/g, 'request.query');
-    content = content.replace(/\breq\.headers\b/g, 'request.headers');
-    
-    content = content.replace(
-      /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
-      'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-    );
-    
-    content = content.replace(
-      /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
-      'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-    );
-    
-    content = content.replace(/process\.env\./g, 'env.');
-    
-    // Replace fs.readFileSync with KV fetch
-    if (content.includes('fs.readFileSync')) {
-      content = `import { fetchDataFile } from '../utils/data-loader.js';\n` + content;
-      content = content.replace(
-        /fs\.readFileSync\(['"]([^'"]+)['"]\)\.toString\(\)/g,
-        'await fetchDataFile("$1", env)'
-      );
-    }
-    
-    // Add Google Sheets client import
-    if (content.includes('google.sheets')) {
-      content = `import { getSheetsClient } from '../utils/sheets-client.js';\n` + content;
-      content = content.replace(/const sheets = google\.sheets\([^)]+\);/g, 'const sheets = await getSheetsClient(env);');
-      content = content.replace(/import { google } from 'googleapis';/g, '');
-    }
-    
-    fs.writeFileSync(dest, content);
-    console.log(`✓ Converted ${source} → ${dest}`);
-  } else {
-    console.log(`⚠️  Skipped ${source} (not found)`);
+    content = content.replace(/\breq\.body\b/g, 'body');
   }
+  
+  // Parse query params properly
+  if (content.includes('request.query')) {
+    content = `const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);\n  ${content}`;
+    content = content.replace(/request\.query/g, 'query');
+  }
+  
+  // Replace res.status().json()
+  content = content.replace(
+    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
+    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+  );
+  
+  content = content.replace(
+    /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
+    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+  );
+  
+  // Replace process.env with env
+  content = content.replace(/process\.env\./g, 'env.');
+  
+  // Add Google Sheets client import
+  if (content.includes('google.sheets') || content.includes('sheets.spreadsheets')) {
+    content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
+    content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
+  }
+  
+  // Add data loader for file reading
+  if (content.includes('fs.readFileSync')) {
+    content = `import { fetchDataFile } from '../utils/data-loader.js';\n` + content;
+    content = content.replace(
+      /fs\.readFileSync\s*\(\s*['"]([^'"]+)['"]\s*\)\.toString\(\)/g,
+      'await fetchDataFile("$1", env)'
+    );
+    content = content.replace(
+      /fs\.readFileSync\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]utf-?8['"]\s*\)/g,
+      'await fetchDataFile("$1", env)'
+    );
+  }
+  
+  fs.writeFileSync(dest, content);
+  console.log(`✓ Converted ${source} → ${dest}`);
 });
 
-// 2. Bundle ONLY small static assets (HTML, JS, small JSON)
-console.log('\n📦 Bundling small static assets...');
+// =====================================================
+// STEP 2: Create utility files
+// =====================================================
+console.log('\n🔧 Creating utilities...\n');
 
-const staticFiles = [
-  'public/index.html',
-  'public/login.html',
-  'public/admin.html',
-  'public/baza.html',
-  'public/polasci.html',
-  'public/juce.html',
-  'public/panel.html',
-  'public/rv.html',
-  'public/493.html',
-  'public/bbr.html',
-  'public/lazarevac.html',
-  'public/300sumice.html',
-  'public/trosarina.html',
-  'public/auth-check.js',
-  'public/app.min.js',
-  'public/route-mapping.json',
-  'api/trasa.html'
-  // NOTE: Large files (shapes.txt, stops.txt, etc.) will be fetched from external URL
-];
-
-const assets = {};
-
-staticFiles.forEach(file => {
-  if (fs.existsSync(file)) {
-    const content = fs.readFileSync(file, 'utf8');
-    const filename = path.basename(file);
-    assets[filename] = content;
-    console.log(`✓ Added ${filename}`);
-  } else {
-    console.log(`⚠️  Skipped ${file} (not found)`);
-  }
-});
-
-// 3. Generate assets.js
-console.log('\n📝 Generating assets...');
-
-const assetsContent = `// Auto-generated static assets
-export const STATIC_ASSETS = ${JSON.stringify(assets, null, 2)};`;
-
-fs.writeFileSync('src/assets.js', assetsContent);
-console.log('✓ Generated src/assets.js');
-
-// 4. Create data-loader utility
-console.log('\n🔧 Creating utilities...');
-
-// Ensure utils directory exists
-if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils', { recursive: true });
-
+// data-loader.js
 const dataLoaderContent = `// src/utils/data-loader.js
-// Loads large data files from external source (Vercel deployment or R2)
+// Loads large GTFS files from external source (Vercel deployment)
 
 const DATA_BASE_URL = 'https://mapabus.vercel.app';
 
-// Map local paths to remote URLs
 const FILE_MAP = {
-  'api/shapes.txt': '/api/shapes.txt',
-  'api/shapes_gradske.txt': '/api/shapes_gradske.txt',
-  'api/stop_times.txt': '/api/stop_times.txt',
+  'api/shapes.txt': '/data/shapes.txt',
+  'api/shapes_gradske.txt': '/data/shapes_gradske.txt',
+  'public/data/shapes.txt': '/data/shapes.txt',
+  'public/data/shapes_gradske.txt': '/data/shapes_gradske.txt',
   'api/stops.txt': '/api/stops.txt',
   'api/stops_gradske.txt': '/api/stops_gradske.txt',
   'api/trips.txt': '/api/trips.txt',
-  'api/trips_gradske.txt': '/api/trips_gradske.txt',
-  'api/lista/lista.txt': '/api/lista/lista.txt',
-  'api/all.json': '/api/all.json',
-  'public/alll.json': '/alll.json',
+  'api/stop_times.txt': '/api/stop_times.txt',
   'public/all.json': '/all.json',
-  'public/data/shapes.txt': '/data/shapes.txt',
-  'public/data/shapes_gradske.txt': '/data/shapes_gradske.txt'
+  'public/alll.json': '/alll.json'
 };
 
 export async function fetchDataFile(filePath, env) {
-  // Check if we should use KV cache
+  // Check KV cache first (if available)
   if (env.DATA_CACHE) {
     try {
       const cached = await env.DATA_CACHE.get(filePath);
@@ -176,12 +142,12 @@ export async function fetchDataFile(filePath, env) {
         return cached;
       }
     } catch (e) {
-      console.warn('KV cache error:', e);
+      console.warn('KV cache read error:', e);
     }
   }
 
   // Fetch from remote
-  const remotePath = FILE_MAP[filePath] || '/' + filePath;
+  const remotePath = FILE_MAP[filePath] || '/' + filePath.replace(/^(api|public)\\//, '');
   const url = DATA_BASE_URL + remotePath;
   
   console.log(\`⬇️  Fetching: \${url}\`);
@@ -213,13 +179,20 @@ export async function fetchDataFile(filePath, env) {
 fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
 console.log('✓ Created src/utils/data-loader.js');
 
-// 5. Create sheets-client.js (same as before)
+// sheets-client.js
 const sheetsClientContent = `// src/utils/sheets-client.js
 export async function getSheetsClient(env) {
   const accessToken = await getAccessToken(env);
   
   return {
     spreadsheets: {
+      get: async (params) => {
+        const url = \`https://sheets.googleapis.com/v4/spreadsheets/\${params.spreadsheetId}\`;
+        const response = await fetch(url, {
+          headers: { 'Authorization': \`Bearer \${accessToken}\` }
+        });
+        return { data: await response.json() };
+      },
       values: {
         get: async (params) => {
           const url = \`https://sheets.googleapis.com/v4/spreadsheets/\${params.spreadsheetId}/values/\${params.range}\`;
@@ -361,30 +334,264 @@ function base64Decode(base64) {
   return bytes.buffer;
 }`;
 
-// Write both files
-fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
-console.log('✓ Created src/utils/data-loader.js');
-
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
 
-// 6. Update index.js
-console.log('\n🔗 Updating index.js...');
+// =====================================================
+// STEP 3: Bundle static assets
+// =====================================================
+console.log('\n📦 Bundling static assets...\n');
 
-let indexContent = fs.readFileSync('src/index.js', 'utf8');
-indexContent = indexContent.replace(
-  'const STATIC_ASSETS = {}; // Biće popunjeno tokom build-a',
-  "import { STATIC_ASSETS } from './assets.js';"
-);
+const staticFiles = [
+  'public/index.html',
+  'public/login.html',
+  'public/admin.html',
+  'public/baza.html',
+  'public/polasci.html',
+  'public/juce.html',
+  'public/panel.html',
+  'public/auth-check.js',
+  'public/app.min.js',
+  'public/route-mapping.json'
+];
+
+const assets = {};
+
+staticFiles.forEach(file => {
+  if (fs.existsSync(file)) {
+    const content = fs.readFileSync(file, 'utf8');
+    const filename = path.basename(file);
+    assets[filename] = content;
+    console.log(`✓ Bundled ${filename}`);
+  } else {
+    console.log(`⚠️  Skipped ${file} (not found)`);
+  }
+});
+
+// Generate assets.js
+const assetsContent = `// Auto-generated static assets
+export const STATIC_ASSETS = ${JSON.stringify(assets, null, 2)};`;
+
+fs.writeFileSync('src/assets.js', assetsContent);
+console.log('\n✓ Generated src/assets.js');
+
+// =====================================================
+// STEP 4: Create main index.js
+// =====================================================
+console.log('\n🔗 Creating main index.js...\n');
+
+const indexContent = `// src/index.js - Main Cloudflare Worker
+import { STATIC_ASSETS } from './assets.js';
+import { handleAuth } from './handlers/auth.js';
+import { handleVehicles } from './handlers/vehicles.js';
+import { handleGetSheetData } from './handlers/get-sheet-data.js';
+import { handleUpdateSheet } from './handlers/update-sheet.js';
+import { handleUpdateDeparturesSheet } from './handlers/update-departures-sheet.js';
+import { handleResetDepartures } from './handlers/reset-departures.js';
+import { handleHourlyCheck } from './handlers/hourly-check.js';
+import { handleStations } from './handlers/stations.js';
+import { handleConfig } from './handlers/config.js';
+
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
+    const path = url.pathname;
+
+    // CORS headers
+    const corsHeaders = {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type',
+    };
+
+    // Handle OPTIONS
+    if (request.method === 'OPTIONS') {
+      return new Response(null, { headers: corsHeaders });
+    }
+
+    try {
+      let response;
+
+      // ==================== API ROUTES ====================
+      if (path === '/api/auth') {
+        response = await handleAuth(request, env);
+      }
+      else if (path === '/api/vehicles') {
+        response = await handleVehicles(request, env);
+      }
+      else if (path === '/api/get-sheet-data') {
+        response = await handleGetSheetData(request, env);
+      }
+      else if (path === '/api/update-sheet') {
+        response = await handleUpdateSheet(request, env);
+      }
+      else if (path === '/api/update-departures-sheet') {
+        response = await handleUpdateDeparturesSheet(request, env);
+      }
+      else if (path === '/api/reset-departures') {
+        response = await handleResetDepartures(request, env);
+      }
+      else if (path === '/api/hourly-check') {
+        response = await handleHourlyCheck(request, env);
+      }
+      else if (path === '/api/stations') {
+        response = await handleStations(request, env);
+      }
+      else if (path === '/api/config') {
+        response = await handleConfig(request, env);
+      }
+      
+      // HTML Pages served as API endpoints
+      else if (path === '/api/sve') {
+        response = serveHTML(STATIC_ASSETS['sve.html'] || '<h1>Page not found</h1>');
+      }
+      else if (path === '/api/linije') {
+        const linijeHTML = \`<!DOCTYPE html>
+<html lang="sr">
+<head>
+<script src="/auth-check.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Linije</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: #eee; }
+#map { height: 100vh; width: 100%; z-index: 1; }
+.controls {
+  position: absolute; top: 10px; right: 10px; z-index: 1000;
+  background: rgba(255, 255, 255, 0.98); padding: 15px;
+  border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+  width: 260px; max-height: 70vh; overflow-y: auto;
+}
+h3 { margin: 0 0 10px 0; color: #333; font-size: 16px; }
+.input-group { display: flex; gap: 5px; margin-bottom: 10px; }
+input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
+button#addBtn { padding: 0 15px; background: #2980b9; color: white; border: none; border-radius: 6px; font-weight: bold; }
+#activeLines { list-style: none; padding: 0; margin: 0; }
+.line-item { background: #f8f9fa; margin-bottom: 6px; padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; }
+.remove-btn { color: #e74c3c; cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="controls">
+  <h3>Linije</h3>
+  <div class="input-group">
+    <input type="text" id="lineInput" placeholder="Linija (npr. 31)">
+    <button id="addBtn" onclick="alert('Funkcionalnost u izradi')">+</button>
+  </div>
+  <ul id="activeLines"></ul>
+</div>
+<div id="map"></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([44.8125, 20.4612], 13);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; CARTO'
+}).addTo(map);
+</script>
+</body>
+</html>\`;
+        response = serveHTML(linijeHTML);
+      }
+      
+      // Static files
+      else {
+        response = serveStaticFile(path);
+      }
+
+      // Add CORS to all responses
+      if (response) {
+        const newHeaders = new Headers(response.headers);
+        Object.entries(corsHeaders).forEach(([key, value]) => {
+          newHeaders.set(key, value);
+        });
+        return new Response(response.body, {
+          status: response.status,
+          statusText: response.statusText,
+          headers: newHeaders
+        });
+      }
+
+      return new Response('Not Found', { status: 404, headers: corsHeaders });
+
+    } catch (error) {
+      console.error('Worker error:', error);
+      return new Response(JSON.stringify({
+        error: 'Internal Server Error',
+        message: error.message,
+        stack: error.stack
+      }), {
+        status: 500,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+      });
+    }
+  },
+
+  async scheduled(event, env, ctx) {
+    console.log('Cron triggered:', new Date().toISOString());
+    try {
+      const request = new Request('https://worker/cron', {
+        method: 'GET',
+        headers: { 'X-Cron': 'true' }
+      });
+      await handleHourlyCheck(request, env);
+    } catch (error) {
+      console.error('Cron error:', error);
+    }
+  }
+};
+
+function serveHTML(html) {
+  return new Response(html, {
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}
+
+function serveStaticFile(path) {
+  if (path === '/' || path === '') path = '/index.html';
+  
+  const filename = path.substring(1);
+  const content = STATIC_ASSETS[filename];
+  
+  if (!content) {
+    return new Response('Not Found', { status: 404 });
+  }
+
+  const contentType = getContentType(filename);
+  return new Response(content, {
+    headers: {
+      'Content-Type': contentType,
+      'Cache-Control': 'public, max-age=3600'
+    }
+  });
+}
+
+function getContentType(path) {
+  const ext = path.split('.').pop()?.toLowerCase();
+  const types = {
+    'html': 'text/html; charset=utf-8',
+    'js': 'application/javascript; charset=utf-8',
+    'css': 'text/css; charset=utf-8',
+    'json': 'application/json',
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'svg': 'image/svg+xml',
+    'txt': 'text/plain; charset=utf-8'
+  };
+  return types[ext] || 'application/octet-stream';
+}`;
+
 fs.writeFileSync('src/index.js', indexContent);
-console.log('✓ Updated src/index.js');
+console.log('✓ Created src/index.js');
 
-console.log('\n✅ Build complete!');
-console.log('\n📝 Strategy:');
-console.log('  - Small files: bundled in Worker');
-console.log('  - Large GTFS data: fetched from Vercel (cached in KV)');
-console.log('\n🔑 Set secrets:');
-console.log('  wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
-console.log('  wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
-console.log('  wrangler secret put GOOGLE_SPREADSHEET_ID');
-console.log('\n🚀 Deploy: wrangler deploy');
+// =====================================================
+// DONE
+// =====================================================
+console.log('\n✅ Build complete!\n');
+console.log('📝 Next steps:');
+console.log('  1. Set secrets:');
+console.log('     wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
+console.log('     wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
+console.log('     wrangler secret put GOOGLE_SPREADSHEET_ID');
+console.log('  2. Deploy:');
+console.log('     wrangler deploy');
