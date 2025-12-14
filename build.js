@@ -77,23 +77,32 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     content = content.replace(/request\.query/g, 'query');
   }
   
-  // Replace res.status().json()
+  // Replace res.status().json() - FIXED ORDER
   content = content.replace(
     /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
     'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
   );
   
   content = content.replace(
-    /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
+    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
     'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
   );
   
-  // Replace res.setHeader and res.send
+  // Replace res.setHeader
   content = content.replace(/res\.setHeader\s*\([^)]+\)\s*;?\s*/g, '');
+  
+  // Replace res.status().send() - FIXED: Handle with and without return
   content = content.replace(
-    /res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response($2, { status: $1, headers: { "Content-Type": "text/html; charset=utf-8" } })'
+    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response($2, { status: $1, headers: { "Content-Type": "text/plain; charset=utf-8" } })'
   );
+  
+  content = content.replace(
+    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response($2, { status: $1, headers: { "Content-Type": "text/plain; charset=utf-8" } })'
+  );
+  
+  // Replace res.send
   content = content.replace(
     /res\.send\s*\(\s*([^)]+)\s*\)/g,
     'return new Response($1, { headers: { "Content-Type": "text/html; charset=utf-8" } })'
@@ -483,7 +492,6 @@ console.log('\n🔗 Creating main index.js...\n');
 
 const indexContent = `// src/index.js - Main Cloudflare Worker
 import { STATIC_ASSETS } from './assets.js';
-import { handleAuth } from './handlers/auth.js';
 import { handleVehicles } from './handlers/vehicles.js';
 import { handleGetSheetData } from './handlers/get-sheet-data.js';
 import { handleUpdateSheet } from './handlers/update-sheet.js';
@@ -514,10 +522,7 @@ export default {
       let response;
 
       // ==================== API ROUTES ====================
-      if (path === '/api/auth') {
-        response = await handleAuth(request, env);
-      }
-      else if (path === '/api/vehicles') {
+      if (path === '/api/vehicles') {
         response = await handleVehicles(request, env);
       }
       else if (path === '/api/get-sheet-data') {
@@ -540,59 +545,6 @@ export default {
       }
       else if (path === '/api/config') {
         response = await handleConfig(request, env);
-      }
-      
-      // HTML Pages served as API endpoints
-      else if (path === '/api/sve') {
-        response = serveHTML(STATIC_ASSETS['sve.html'] || '<h1>Page not found</h1>');
-      }
-      else if (path === '/api/linije') {
-        const linijeHTML = \`<!DOCTYPE html>
-<html lang="sr">
-<head>
-<script src="/auth-check.js"></script>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Linije</title>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<style>
-body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: #eee; }
-#map { height: 100vh; width: 100%; z-index: 1; }
-.controls {
-  position: absolute; top: 10px; right: 10px; z-index: 1000;
-  background: rgba(255, 255, 255, 0.98); padding: 15px;
-  border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-  width: 260px; max-height: 70vh; overflow-y: auto;
-}
-h3 { margin: 0 0 10px 0; color: #333; font-size: 16px; }
-.input-group { display: flex; gap: 5px; margin-bottom: 10px; }
-input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-size: 16px; }
-button#addBtn { padding: 0 15px; background: #2980b9; color: white; border: none; border-radius: 6px; font-weight: bold; }
-#activeLines { list-style: none; padding: 0; margin: 0; }
-.line-item { background: #f8f9fa; margin-bottom: 6px; padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; }
-.remove-btn { color: #e74c3c; cursor: pointer; }
-</style>
-</head>
-<body>
-<div class="controls">
-  <h3>Linije</h3>
-  <div class="input-group">
-    <input type="text" id="lineInput" placeholder="Linija (npr. 31)">
-    <button id="addBtn" onclick="alert('Funkcionalnost u izradi')">+</button>
-  </div>
-  <ul id="activeLines"></ul>
-</div>
-<div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-const map = L.map('map').setView([44.8125, 20.4612], 13);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-  attribution: '&copy; CARTO'
-}).addTo(map);
-</script>
-</body>
-</html>\`;
-        response = serveHTML(linijeHTML);
       }
       
       // Static files
@@ -641,12 +593,6 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r
     }
   }
 };
-
-function serveHTML(html) {
-  return new Response(html, {
-    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-  });
-}
 
 function serveStaticFile(path) {
   if (path === '/' || path === '') path = '/index.html';
