@@ -135,6 +135,9 @@ console.log('✓ Generated src/assets.js');
 // 4. Create data-loader utility
 console.log('\n🔧 Creating utilities...');
 
+// Ensure utils directory exists
+if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils', { recursive: true });
+
 const dataLoaderContent = `// src/utils/data-loader.js
 // Loads large data files from external source (Vercel deployment or R2)
 
@@ -352,7 +355,10 @@ function base64Decode(base64) {
   return bytes.buffer;
 }`;
 
-if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
+// Write both files
+fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
+console.log('✓ Created src/utils/data-loader.js');
+
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
 
