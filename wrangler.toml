@@ -1,0 +1,17 @@
+name = "mapabus"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+[vars]
+# Environment varijable - postavi kroz Cloudflare Dashboard
+# ili kroz wrangler secret put
+
+# KV namespace samo za cache
+kv_namespaces = [
+  { binding = "CACHE", id = "your_kv_namespace_id" }
+]
+
+# Secrets (postavi kroz: wrangler secret put SECRET_NAME)
+# GOOGLE_SHEETS_CLIENT_EMAIL
+# GOOGLE_SHEETS_PRIVATE_KEY
+# GOOGLE_SPREADSHEET_ID
