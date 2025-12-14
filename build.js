@@ -53,24 +53,25 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     `export async function ${handlerName}(`
   );
   
-  // Also handle non-async handlers
+  // Also handle non-async handlers - make them async
   content = content.replace(
     /export default function handler\s*\(/g,
-    `export function ${handlerName}(`
+    `export async function ${handlerName}(`
   );
   
   // Replace req/res with request
   content = content.replace(/\breq\.method\b/g, 'request.method');
   content = content.replace(/\breq\.query\b/g, 'request.query');
   content = content.replace(/\breq\.headers\b/g, 'request.headers');
+  content = content.replace(/\breq\.body\b/g, 'request.body');
   
   // Parse request body properly
-  if (content.includes('req.body')) {
+  if (content.includes('request.body')) {
     content = content.replace(
-      /const\s+{\s*([^}]+)\s*}\s*=\s*req\.body\s*;?/g,
+      /const\s+{\s*([^}]+)\s*}\s*=\s*request\.body\s*;?/g,
       'const body = await request.json();\n  const { $1 } = body;'
     );
-    content = content.replace(/\breq\.body\b/g, 'body');
+    content = content.replace(/request\.body/g, 'body');
   }
   
   // Parse query params properly - inject inside function body only
@@ -88,6 +89,17 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     content = content.replace(/request\.headers\.host/g, 'request.headers.get(\'host\')');
     content = content.replace(/request\.headers\[['"]host['"]\]/g, 'request.headers.get(\'host\')');
   }
+  
+  // Replace res.status().end()
+  content = content.replace(
+    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
+    'return new Response(null, { status: $1 })'
+  );
+  
+  content = content.replace(
+    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
+    'return new Response(null, { status: $1 })'
+  );
   
   // Replace res.status().json() - FIXED ORDER
   content = content.replace(
@@ -1132,6 +1144,29 @@ export default {
       }
       else if (path === '/api/linije') {
         response = await handleLinije(request, env);
+      }
+      
+      // Shapes data files (proxy from Vercel)
+      else if (path === '/data/shapes.txt' || path === '/data/shapes_gradske.txt') {
+        const filename = path.split('/').pop();
+        const vercelUrl = \`https://mapabus.vercel.app/data/\${filename}\`;
+        
+        try {
+          const dataResponse = await fetch(vercelUrl);
+          if (dataResponse.ok) {
+            const text = await dataResponse.text();
+            response = new Response(text, {
+              headers: {
+                'Content-Type': 'text/plain; charset=utf-8',
+                'Cache-Control': 'public, max-age=3600'
+              }
+            });
+          } else {
+            response = new Response('Shapes file not found', { status: 404 });
+          }
+        } catch (error) {
+          response = new Response('Error fetching shapes: ' + error.message, { status: 500 });
+        }
       }
       
       // Static files
