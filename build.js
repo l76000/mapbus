@@ -16,7 +16,7 @@ console.log('📁 Converting API routes...\n');
 
 const apiFiles = {
   // Skip auth.js - we'll create it manually
-  // 'api/auth.js': 'src/handlers/auth.js',
+  // Skip linije.js and sve.js - they're HTML servers, handle separately
   'api/vehicles.js': 'src/handlers/vehicles.js',
   'api/get-sheet-data.js': 'src/handlers/get-sheet-data.js',
   'api/update-sheet.js': 'src/handlers/update-sheet.js',
@@ -25,8 +25,6 @@ const apiFiles = {
   'api/hourly-check.js': 'src/handlers/hourly-check.js',
   'api/stations.js': 'src/handlers/stations.js',
   'api/config.js': 'src/handlers/config.js',
-  'api/sve.js': 'src/handlers/sve.js',
-  'api/linije.js': 'src/handlers/linije.js',
 };
 
 Object.entries(apiFiles).forEach(([source, dest]) => {
@@ -987,6 +985,41 @@ function jsonResponse(data, status = 200) {
 fs.writeFileSync('src/handlers/auth.js', authHandlerContent);
 console.log('✓ Created src/handlers/auth.js');
 
+// Create simple HTML serving handlers
+const htmlHandlers = {
+  'sve.js': 'Sve',
+  'linije.js': 'Linije'
+};
+
+Object.entries(htmlHandlers).forEach(([filename, handlerSuffix]) => {
+  const sourceFile = `api/${filename}`;
+  const destFile = `src/handlers/${filename}`;
+  
+  if (fs.existsSync(sourceFile)) {
+    const content = fs.readFileSync(sourceFile, 'utf8');
+    
+    // Extract just the HTML content
+    const htmlMatch = content.match(/const html = `([\s\S]*?)`;\s*res\.setHeader/);
+    
+    if (htmlMatch) {
+      const htmlContent = htmlMatch[1];
+      
+      const handlerContent = `// src/handlers/${filename}
+export async function handle${handlerSuffix}(request, env) {
+  const html = \`${htmlContent}\`;
+  
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
+}`;
+      
+      fs.writeFileSync(destFile, handlerContent);
+      console.log(`✓ Created ${destFile}`);
+    }
+  }
+});
+
 // =====================================================
 // STEP 3: Bundle static assets
 // =====================================================
@@ -1092,6 +1125,8 @@ export default {
       else if (path === '/api/config') {
         response = await handleConfig(request, env);
       }
+      
+      // HTML serving endpoints
       else if (path === '/api/sve') {
         response = await handleSve(request, env);
       }
