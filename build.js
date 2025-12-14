@@ -25,6 +25,8 @@ const apiFiles = {
   'api/hourly-check.js': 'src/handlers/hourly-check.js',
   'api/stations.js': 'src/handlers/stations.js',
   'api/config.js': 'src/handlers/config.js',
+  'api/sve.js': 'src/handlers/sve.js',
+  'api/linije.js': 'src/handlers/linije.js',
 };
 
 Object.entries(apiFiles).forEach(([source, dest]) => {
@@ -81,6 +83,12 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
       '$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);'
     );
     content = content.replace(/request\.query/g, 'query');
+  }
+  
+  // Parse request.headers.host properly
+  if (content.includes('request.headers.host') || content.includes('request.headers[\'host\']')) {
+    content = content.replace(/request\.headers\.host/g, 'request.headers.get(\'host\')');
+    content = content.replace(/request\.headers\[['"]host['"]\]/g, 'request.headers.get(\'host\')');
   }
   
   // Replace res.status().json() - FIXED ORDER
@@ -1033,6 +1041,8 @@ import { handleResetDepartures } from './handlers/reset-departures.js';
 import { handleHourlyCheck } from './handlers/hourly-check.js';
 import { handleStations } from './handlers/stations.js';
 import { handleConfig } from './handlers/config.js';
+import { handleSve } from './handlers/sve.js';
+import { handleLinije } from './handlers/linije.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -1081,6 +1091,12 @@ export default {
       }
       else if (path === '/api/config') {
         response = await handleConfig(request, env);
+      }
+      else if (path === '/api/sve') {
+        response = await handleSve(request, env);
+      }
+      else if (path === '/api/linije') {
+        response = await handleLinije(request, env);
       }
       
       // Static files
