@@ -1,7 +1,7 @@
 // src/handlers/auth.js
 // IDENTIČAN kod kao api/auth.js, samo prilagođen za Cloudflare Workers
 
-import { getSheetsClient } from '../utils/sheets-client';
+import { getSheetsClient } from '../utils/sheets-client.js';
 
 // Hash password
 async function hashPassword(password) {
