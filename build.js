@@ -49,9 +49,16 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     content = content.replace(/\breq\.query\b/g, 'request.query');
     content = content.replace(/\breq\.headers\b/g, 'request.headers');
     
-    // 3. Zameni res.status().json() sa return new Response(JSON.stringify())
+    // 3. Zameni res.status().json() sa new Response() - ISPRAVLJENO!
+    // Zameni "return res.status(X).json(Y)" sa "return new Response(...)"
     content = content.replace(
-      /res\.status\((\d+)\)\.json\(([^)]+)\)/g,
+      /return\s+res\.status\((\d+)\)\.json\(([^)]+)\)/g,
+      'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+    );
+    
+    // Zameni "res.status(X).json(Y)" (bez return) sa "return new Response(...)"
+    content = content.replace(
+      /(?<!return\s+)res\.status\((\d+)\)\.json\(([^)]+)\)/g,
       'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
     );
     
@@ -67,6 +74,8 @@ Object.entries(apiFiles).forEach(([source, dest]) => {
     
     fs.writeFileSync(dest, content);
     console.log(`✓ Converted ${source} → ${dest}`);
+  } else {
+    console.log(`⚠️  Skipped ${source} (not found)`);
   }
 });
 
@@ -113,7 +122,7 @@ staticFiles.forEach(file => {
     assets[filename] = content;
     console.log(`✓ Added ${filename}`);
   } else {
-    console.log(`⚠ Missing ${file}`);
+    console.log(`⚠️  Skipped ${file} (not found)`);
   }
 });
 
@@ -288,14 +297,14 @@ console.log('\n🔗 Updating index.js...');
 let indexContent = fs.readFileSync('src/index.js', 'utf8');
 indexContent = indexContent.replace(
   'const STATIC_ASSETS = {}; // Biće popunjeno tokom build-a',
-  "import { STATIC_ASSETS } from './assets';"
+  "import { STATIC_ASSETS } from './assets.js';"
 );
 fs.writeFileSync('src/index.js', indexContent);
 console.log('✓ Updated src/index.js');
 
-console.log('\n✅ Build complete! Run "npm run deploy" to deploy to Cloudflare Workers.');
+console.log('\n✅ Build complete!');
 console.log('\n📝 Next steps:');
 console.log('1. wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
 console.log('2. wrangler secret put GOOGLE_SHEETS_PRIVATE_KEY');
 console.log('3. wrangler secret put GOOGLE_SPREADSHEET_ID');
-console.log('4. npm run deploy');
+console.log('4. npm run deploy (or wrangler deploy)');
