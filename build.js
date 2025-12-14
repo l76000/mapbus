@@ -15,9 +15,8 @@ if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
 console.log('📁 Converting API routes...\n');
 
 const apiFiles = {
-  // Skip auth.js - we'll create it manually
+  // Skip auth.js, vehicles.js - we'll create them manually
   // Skip linije.js and sve.js - they're HTML servers, handle separately
-  'api/vehicles.js': 'src/handlers/vehicles.js',
   'api/get-sheet-data.js': 'src/handlers/get-sheet-data.js',
   'api/update-sheet.js': 'src/handlers/update-sheet.js',
   'api/update-departures-sheet.js': 'src/handlers/update-departures-sheet.js',
@@ -1031,6 +1030,127 @@ export async function handle${handlerSuffix}(request, env) {
     }
   }
 });
+
+// Create clean vehicles handler
+const vehiclesHandlerContent = `// src/handlers/vehicles.js
+export async function handleVehicles(request, env) {
+  const url = new URL(request.url);
+  const linesParam = url.searchParams.get('lines');
+  let selectedLines = null;
+  
+  if (linesParam) {
+    selectedLines = linesParam.split(',').map(l => l.trim());
+  }
+
+  try {
+    const timestamp = Date.now();
+    const randomSalt = Math.random().toString(36).substring(2, 15);
+    const BASE_URL = 'https://rt.buslogic.baguette.pirnet.si/beograd/rt.json';
+    const targetUrl = \`\${BASE_URL}?_=\${timestamp}&salt=\${randomSalt}\`;
+
+    const response = await fetch(targetUrl, {
+      method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+        'Cache-Control': 'no-cache'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(\`API error: \${response.status}\`);
+    }
+
+    const data = await response.json();
+
+    if (!data || !data.entity) {
+      return new Response(JSON.stringify({ vehicles: [], tripUpdates: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const vehicles = [];
+    const tripUpdates = [];
+
+    data.entity.forEach(entitet => {
+      if (entitet.vehicle && entitet.vehicle.position) {
+        const info = entitet.vehicle;
+        const vehicleLabel = info.vehicle.label;
+        const routeId = normalizeRouteId(info.trip.routeId);
+
+        if (!isValidGarageNumber(vehicleLabel)) {
+          return;
+        }
+
+        if (selectedLines && !selectedLines.includes(routeId)) {
+          return;
+        }
+
+        vehicles.push({
+          id: info.vehicle.id,
+          label: vehicleLabel,
+          routeId: info.trip.routeId,
+          startTime: info.trip.startTime,
+          lat: parseFloat(info.position.latitude),
+          lon: parseFloat(info.position.longitude)
+        });
+      }
+
+      if (entitet.tripUpdate && entitet.tripUpdate.trip && 
+          entitet.tripUpdate.stopTimeUpdate && entitet.tripUpdate.vehicle) {
+        const updates = entitet.tripUpdate.stopTimeUpdate;
+        const vehicleId = entitet.tripUpdate.vehicle.id;
+
+        if (updates.length > 0 && vehicleId) {
+          const lastStopId = updates[updates.length - 1].stopId;
+          tripUpdates.push({
+            vehicleId: vehicleId,
+            destination: lastStopId
+          });
+        }
+      }
+    });
+
+    return new Response(JSON.stringify({
+      vehicles: vehicles,
+      tripUpdates: tripUpdates,
+      timestamp: Date.now()
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Error fetching vehicles:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to fetch vehicle data',
+      message: error.message 
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+function normalizeRouteId(routeId) {
+  if (typeof routeId === 'string') {
+    return parseInt(routeId, 10).toString();
+  }
+  return routeId;
+}
+
+function isValidGarageNumber(label) {
+  if (!label || typeof label !== 'string') return false;
+  
+  if (label.startsWith('P')) {
+    return label.length >= 6;
+  }
+  
+  return true;
+}`;
+
+fs.writeFileSync('src/handlers/vehicles.js', vehiclesHandlerContent);
+console.log('✓ Created src/handlers/vehicles.js (clean version)');
 
 // =====================================================
 // STEP 3: Bundle static assets
