@@ -15,14 +15,11 @@ if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
 console.log('📁 Converting API routes...\n');
 
 const apiFiles = {
-  // Skip auth.js, vehicles.js - we'll create them manually
-  // Skip linije.js and sve.js - they're HTML servers, handle separately
-  'api/get-sheet-data.js': 'src/handlers/get-sheet-data.js',
-  'api/update-sheet.js': 'src/handlers/update-sheet.js',
+  // Skip auth.js, vehicles.js, stations.js, get-sheet-data.js, update-sheet.js - create manually
+  // Skip linije.js and sve.js - they're HTML servers
   'api/update-departures-sheet.js': 'src/handlers/update-departures-sheet.js',
   'api/reset-departures.js': 'src/handlers/reset-departures.js',
   'api/hourly-check.js': 'src/handlers/hourly-check.js',
-  'api/stations.js': 'src/handlers/stations.js',
   'api/config.js': 'src/handlers/config.js',
 };
 
@@ -1151,6 +1148,266 @@ function isValidGarageNumber(label) {
 
 fs.writeFileSync('src/handlers/vehicles.js', vehiclesHandlerContent);
 console.log('✓ Created src/handlers/vehicles.js (clean version)');
+
+// Create clean get-sheet-data handler
+const getSheetDataContent = `// src/handlers/get-sheet-data.js
+import { getSheetsClient } from '../utils/sheets-client.js';
+
+export async function handleGetSheetData(request, env) {
+  if (request.method !== 'GET') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const sheets = await getSheetsClient(env);
+    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
+    const sheetName = 'Baza';
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: \`\${sheetName}!A2:F\`,
+    });
+
+    const rows = response.data.values;
+
+    if (!rows || rows.length === 0) {
+      return new Response(JSON.stringify({ 
+        success: true, 
+        vehicles: [],
+        count: 0,
+        sheetName: sheetName
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const vehicles = rows.map(row => ({
+      vozilo: row[0] || '',
+      linija: row[1] || '',
+      polazak: row[2] || '',
+      smer: row[3] || '',
+      timestamp: row[4] || '',
+      datum: row[5] || ''
+    }));
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      vehicles: vehicles,
+      count: vehicles.length,
+      lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null,
+      sheetName: sheetName
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Google Sheets error:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to read sheet',
+      details: error.message 
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}`;
+
+fs.writeFileSync('src/handlers/get-sheet-data.js', getSheetDataContent);
+console.log('✓ Created src/handlers/get-sheet-data.js (clean version)');
+
+// Create clean update-sheet handler  
+const updateSheetContent = `// src/handlers/update-sheet.js
+import { getSheetsClient } from '../utils/sheets-client.js';
+
+export async function handleUpdateSheet(request, env) {
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200 });
+  }
+
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  try {
+    const body = await request.json();
+    const { vehicles } = body;
+
+    if (!vehicles || !Array.isArray(vehicles)) {
+      return new Response(JSON.stringify({ error: 'Invalid data format' }), {
+        status: 400,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+
+    const sheets = await getSheetsClient(env);
+    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
+
+    const now = new Date();
+    const timestamp = now.toLocaleString('sr-RS', { 
+      timeZone: 'Europe/Belgrade',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+
+    const sheetName = 'Baza';
+
+    // Check if sheet exists
+    let sheetId = null;
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+      const existingSheet = spreadsheet.data.sheets.find(
+        s => s.properties.title === sheetName
+      );
+      
+      if (existingSheet) {
+        sheetId = existingSheet.properties.sheetId;
+      } else {
+        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          resource: {
+            requests: [{
+              addSheet: {
+                properties: {
+                  title: sheetName,
+                  gridProperties: { rowCount: 100000, columnCount: 6, frozenRowCount: 1 }
+                }
+              }
+            }]
+          }
+        });
+        
+        sheetId = addSheetResponse.data.replies[0].addSheet.properties.sheetId;
+        
+        await sheets.spreadsheets.values.update({
+          spreadsheetId,
+          range: \`\${sheetName}!A1:F1\`,
+          valueInputOption: 'RAW',
+          resource: {
+            values: [['Vozilo', 'Linija', 'Polazak', 'Smer', 'Vreme upisa', 'Datum']]
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error checking/creating sheet:', error.message);
+      throw error;
+    }
+
+    // Read existing data
+    let existingData = [];
+    try {
+      const readResponse = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: \`\${sheetName}!A2:F\`,
+      });
+      existingData = readResponse.data.values || [];
+    } catch (readError) {
+      console.log('No existing data');
+    }
+
+    const existingVehicles = new Map();
+    existingData.forEach((row, index) => {
+      if (row[0]) {
+        existingVehicles.set(row[0], {
+          rowIndex: index + 2,
+          data: row
+        });
+      }
+    });
+
+    const finalData = [...existingData];
+    let newCount = 0;
+    let updateCount = 0;
+
+    vehicles.forEach(v => {
+      const vehicleLabel = v.vehicleLabel || '';
+      const rowData = [
+        vehicleLabel,
+        v.routeDisplayName || '',
+        v.startTime || '',
+        v.destName || '',
+        timestamp,
+        timestamp.split(',')[0].trim()
+      ];
+
+      if (existingVehicles.has(vehicleLabel)) {
+        const existingRow = existingVehicles.get(vehicleLabel);
+        const arrayIndex = existingRow.rowIndex - 2;
+        finalData[arrayIndex] = rowData;
+        updateCount++;
+      } else {
+        finalData.push(rowData);
+        newCount++;
+        existingVehicles.set(vehicleLabel, { 
+          rowIndex: finalData.length + 1, 
+          data: rowData 
+        });
+      }
+    });
+
+    // Batch write
+    const BATCH_SIZE = 500;
+    const batches = [];
+    
+    for (let i = 0; i < finalData.length; i += BATCH_SIZE) {
+      batches.push(finalData.slice(i, i + BATCH_SIZE));
+    }
+
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+      const batch = batches[batchIndex];
+      const startRow = (batchIndex * BATCH_SIZE) + 2;
+      const endRow = startRow + batch.length - 1;
+
+      await sheets.spreadsheets.values.update({
+        spreadsheetId,
+        range: \`\${sheetName}!A\${startRow}:F\${endRow}\`,
+        valueInputOption: 'RAW',
+        resource: { values: batch }
+      });
+
+      if (batchIndex < batches.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+
+    return new Response(JSON.stringify({ 
+      success: true, 
+      newVehicles: newCount,
+      updatedVehicles: updateCount,
+      totalProcessed: vehicles.length,
+      timestamp,
+      sheetUsed: sheetName,
+      batchesWritten: batches.length
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
+
+  } catch (error) {
+    console.error('Update sheet error:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Unexpected error',
+      details: error.message
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}`;
+
+fs.writeFileSync('src/handlers/update-sheet.js', updateSheetContent);
+console.log('✓ Created src/handlers/update-sheet.js (clean version)');
 
 // =====================================================
 // STEP 3: Bundle static assets
