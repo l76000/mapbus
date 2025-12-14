@@ -100,7 +100,7 @@ const staticFiles = [
   'api/trips_gradske.txt',
   'api/lista/lista.txt',
   'api/all.json',
-  'public/all.json.txt',
+  'public/alll.json',
   'api/trasa.html'
 ];
 
