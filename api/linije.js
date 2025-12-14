@@ -3,6 +3,7 @@ export default function handler(req, res) {
 <!DOCTYPE html>
 <html lang="sr">
 <head>
+<script src="/auth-check.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Linije</title>
@@ -13,6 +14,7 @@ export default function handler(req, res) {
         body { margin: 0; padding: 0; font-family: sans-serif; overflow: hidden; background: #eee; }
         #map { height: 100vh; width: 100%; z-index: 1; }
  
+
         .controls {
             position: absolute; top: 10px; right: 10px; z-index: 1000;
             background: rgba(255, 255, 255, 0.98); padding: 15px;
@@ -34,10 +36,11 @@ export default function handler(req, res) {
             display: flex; justify-content: space-between; align-items: center; 
             font-weight: 600; font-size: 14px;
         }
-        .remove-btn { color: #e74c3c; font-size: 20px; line-height: 1; padding-left: 10px; }
+        .remove-btn { color: #e74c3c; font-size: 20px; line-height: 1; padding-left: 10px; cursor: pointer; }
  
         .status-bar { margin-top: 10px; font-size: 11px; color: #666; border-top: 1px solid #eee; padding-top: 8px; }
  
+
         .bus-icon-container { background: none; border: none; }
         .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
  
@@ -66,6 +69,7 @@ export default function handler(req, res) {
             z-index: 19;
         }
  
+
         .bus-arrow {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 10;
             transition: transform 0.5s linear;
@@ -81,6 +85,7 @@ export default function handler(req, res) {
         .popup-content { font-size: 13px; line-height: 1.4; }
         .popup-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
         .popup-label { font-weight: bold; color: #555; }
+
 
         .destination-marker {
             width: 24px;
@@ -111,7 +116,7 @@ export default function handler(req, res) {
         <h3>Sva Vozila Prijavljena na Polazak</h3>
  
         <div class="input-group">
-            <input type="text" id="lineInput" placeholder="Linija (npr. 31, 860MV, 3A)" onkeypress="handleEnter(event)">
+            <input type="text" id="lineInput" placeholder="Linija (npr.31, 860MV, 3A)" onkeypress="handleEnter(event)">
             <button id="addBtn" onclick="dodajLiniju()">+</button>
         </div>
  
@@ -129,234 +134,45 @@ export default function handler(req, res) {
     <script>
 
         const map = L.map('map', { zoomControl: false }).setView([44.8125, 20.4612], 13);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; CARTO'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; CARTO, &copy; OpenStreetMap contributors',
+            maxZoom: 20
         }).addTo(map);
  
         L.control.zoom({ position: 'bottomright' }).addTo(map);
  
         const busLayer = L.layerGroup().addTo(map);
         const destinationLayer = L.layerGroup().addTo(map);
+        const routeLayer = L.layerGroup().addTo(map);
  
         let izabraneLinije = [];
         let timerId = null;
         let countdownId = null;
         let refreshTime = 60;
-        let timeLeft = 0;
-        let directionColorMap = {};
-        let stationsMap = {};
-        let routeNamesMap = {};
-        
-        // NOVI KOD - Shapes podaci i istorija vozila
-        let shapesData = {};
-        let shapesGradskeData = {};
-        let vehicleHistory = {};
-        let routeMappingData = {};
  
+        let timeLeft = 0;
+ 
+
+        let directionColorMap = {};
+
+
+        let stationsMap = {};
+ 
+
+        let routeNamesMap = {};
+
+        let shapesData = {};
+        let vehicleShapeMap = {};
+        let shapeToColorMapGlobal = {};
+ 
+
         const colors = [
             '#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f', 
             '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
             '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
         ];
 
-        // ========== SHAPES UTILITY FUNKCIJE ==========
-        
-        function parseShapesFile(text) {
-            const lines = text.split('\\n');
-            const shapes = {};
-            
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-                
-                const parts = line.split(',');
-                if (parts.length < 4) continue;
-                
-                const shapeId = parts[0].trim();
-                const lat = parseFloat(parts[1]);
-                const lon = parseFloat(parts[2]);
-                const sequence = parseInt(parts[3]);
-                
-                if (isNaN(lat) || isNaN(lon) || isNaN(sequence)) continue;
-                
-                if (!shapes[shapeId]) {
-                    shapes[shapeId] = [];
-                }
-                
-                shapes[shapeId].push({ lat, lon, sequence });
-            }
-            
-            Object.keys(shapes).forEach(shapeId => {
-                shapes[shapeId].sort((a, b) => a.sequence - b.sequence);
-            });
-            
-            return shapes;
-        }
 
-        async function loadShapes() {
-            try {
-                const shapesResponse = await fetch('/api/shapes.txt');
-                const shapesText = await shapesResponse.text();
-                shapesData = parseShapesFile(shapesText);
-                
-                const shapesGradskeResponse = await fetch('/api/shapes_gradske.txt');
-                const shapesGradskeText = await shapesGradskeResponse.text();
-                shapesGradskeData = parseShapesFile(shapesGradskeText);
-                
-                console.log('✅ Shapes učitani:', Object.keys(shapesData).length, '+', Object.keys(shapesGradskeData).length);
-            } catch (error) {
-                console.error('❌ Greška pri učitavanju shapes:', error);
-            }
-        }
-
-        function haversineDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371000;
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c;
-        }
-
-        function findNearestPointOnShape(lat, lon, shape) {
-            let minDistance = Infinity;
-            let nearestIndex = 0;
-            
-            for (let i = 0; i < shape.length; i++) {
-                const distance = haversineDistance(lat, lon, shape[i].lat, shape[i].lon);
-                if (distance < minDistance) {
-                    minDistance = distance;
-                    nearestIndex = i;
-                }
-            }
-            
-            return nearestIndex;
-        }
-
-        function calculateRouteDistance(pos1, pos2, shape) {
-            if (!shape || shape.length === 0) {
-                return haversineDistance(pos1.lat, pos1.lon, pos2.lat, pos2.lon);
-            }
-            
-            const idx1 = findNearestPointOnShape(pos1.lat, pos1.lon, shape);
-            const idx2 = findNearestPointOnShape(pos2.lat, pos2.lon, shape);
-            
-            if (idx2 < idx1) {
-                let distance = 0;
-                for (let i = idx1; i < shape.length - 1; i++) {
-                    distance += haversineDistance(
-                        shape[i].lat, shape[i].lon,
-                        shape[i + 1].lat, shape[i + 1].lon
-                    );
-                }
-                for (let i = 0; i < idx2; i++) {
-                    distance += haversineDistance(
-                        shape[i].lat, shape[i].lon,
-                        shape[i + 1].lat, shape[i + 1].lon
-                    );
-                }
-                return distance;
-            }
-            
-            let distance = 0;
-            for (let i = idx1; i < idx2; i++) {
-                distance += haversineDistance(
-                    shape[i].lat, shape[i].lon,
-                    shape[i + 1].lat, shape[i + 1].lon
-                );
-            }
-            
-            return distance;
-        }
-
-        function getShapeForLine(lineNumber) {
-            const mappingKey = Object.keys(routeMappingData).find(key => {
-                const leftNumber = key.split(':')[0].trim();
-                return leftNumber === lineNumber.toString();
-            });
-            
-            if (!mappingKey) {
-                return null;
-            }
-            
-            const shapeId = routeMappingData[mappingKey];
-            
-            if (shapesData[shapeId]) return shapesData[shapeId];
-            if (shapesGradskeData[shapeId]) return shapesGradskeData[shapeId];
-            
-            return null;
-        }
-
-        function calculateVehicleSpeed(vehicleId, currentPosition, lineNumber) {
-            const now = Date.now();
-            
-            if (!vehicleHistory[vehicleId]) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const prevData = vehicleHistory[vehicleId];
-            const timeDiff = (now - prevData.timestamp) / 1000;
-            
-            if (timeDiff < 1) {
-                return prevData.speed;
-            }
-            
-            if (timeDiff > 300) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const shape = getShapeForLine(lineNumber);
-            
-            let distance;
-            if (shape && shape.length > 0) {
-                distance = calculateRouteDistance(prevData.position, currentPosition, shape);
-            } else {
-                distance = haversineDistance(
-                    prevData.position.lat, prevData.position.lon,
-                    currentPosition.lat, currentPosition.lon
-                );
-            }
-            
-            if (distance > 5000) {
-                vehicleHistory[vehicleId] = {
-                    position: currentPosition,
-                    timestamp: now,
-                    lineNumber: lineNumber,
-                    speed: null
-                };
-                return null;
-            }
-            
-            const speedMps = distance / timeDiff;
-            const speedKmh = Math.round(speedMps * 3.6 * 10) / 10;
-            
-            vehicleHistory[vehicleId] = {
-                position: currentPosition,
-                timestamp: now,
-                lineNumber: lineNumber,
-                speed: speedKmh
-            };
-            
-            return speedKmh;
-        }
-
-        // ========== ORIGINALNE FUNKCIJE ==========
         
         function normalizeStopId(stopId) {
             if (typeof stopId === 'string' && stopId.length === 5 && stopId.startsWith('2')) {
@@ -378,20 +194,40 @@ export default function handler(req, res) {
             const normalizedId = normalizeRouteId(routeId);
             return routeNamesMap[normalizedId] || normalizedId;
         }
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3;
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c;
+        }
+
+
         
         function findRouteId(userInput) {
             const normalized = userInput.trim().toUpperCase();
             
+
             if (routeNamesMap[normalized]) {
                 return normalized;
             }
             
+
             for (const [apiId, displayName] of Object.entries(routeNamesMap)) {
                 if (displayName.toUpperCase() === normalized) {
                     return apiId;
                 }
             }
             
+
             const normalizedInput = normalizeRouteId(normalized);
             if (routeNamesMap[normalizedInput]) {
                 return normalizedInput;
@@ -399,35 +235,206 @@ export default function handler(req, res) {
             
             return null;
         }
+
+
         
         async function loadStations() {
             try {
                 const response = await fetch('/api/stations');
                 if (!response.ok) throw new Error("Greška pri učitavanju stanica");
                 stationsMap = await response.json();
-                console.log(\`✅ Učitano stanica: \${Object.keys(stationsMap).length}\`);
+                console.log(\`✓ Učitano stanica: \${Object.keys(stationsMap).length}\`);
             } catch (error) {
                 console.error("❌ Greška pri učitavanju stanica:", error);
             }
         }
+
+        loadStations();
+
+
         
         async function loadRouteNames() {
             try {
                 const response = await fetch('/route-mapping.json');
                 if (!response.ok) throw new Error("Greška pri učitavanju naziva linija");
-                routeMappingData = await response.json();
-                routeNamesMap = routeMappingData;
+                const routeMapping = await response.json();
                 
-                console.log("✅ Učitano naziva linija:", Object.keys(routeNamesMap).length);
+                console.log("✓ Učitano naziva linija:", Object.keys(routeMapping).length);
+                
+                routeNamesMap = routeMapping;
             } catch (error) {
                 console.error("❌ Greška pri učitavanju naziva linija:", error);
             }
         }
+
+        loadRouteNames();
+
+
+        async function loadShapes() {
+            try {
+                const [shapesResponse, shapesGradskeResponse] = await Promise.all([
+                    fetch('/data/shapes.txt'),
+                    fetch('/data/shapes_gradske.txt')
+                ]);
+                
+                const shapesText = await shapesResponse.text();
+                const shapesGradskeText = await shapesGradskeResponse.text();
+                
+                parseShapesCSV(shapesText);
+                parseShapesCSV(shapesGradskeText);
+                
+                console.log('✓ Shapes loaded:', Object.keys(shapesData).length);
+            } catch (error) {
+                console.error('❌ Error loading shapes:', error);
+            }
+        }
+
+        function parseShapesCSV(csvText) {
+            const lines = csvText.split('\\n');
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const parts = line.split(',');
+                if (parts.length < 4) continue;
+                
+                const shapeId = parts[0];
+                const lat = parseFloat(parts[1]);
+                const lon = parseFloat(parts[2]);
+                const sequence = parseInt(parts[3]);
+                
+                if (!shapesData[shapeId]) {
+                    shapesData[shapeId] = [];
+                }
+                
+                shapesData[shapeId].push({
+                    lat: lat,
+                    lon: lon,
+                    sequence: sequence
+                });
+            }
+            
+            for (let shapeId in shapesData) {
+                shapesData[shapeId].sort((a, b) => a.sequence - b.sequence);
+            }
+        }
+
+        loadShapes();
+
+        function padRouteId(routeId) {
+            const numericId = parseInt(routeId, 10);
+            if (!isNaN(numericId) && routeId === numericId.toString() && routeId.length <= 3) {
+                return numericId.toString().padStart(5, '0');
+            }
+            return routeId;
+        }
+
+        function determineShapeColorByDestination(shapeKey, routeId, vehicleDestinations) {
+            const shapePoints = shapesData[shapeKey];
+            if (!shapePoints || shapePoints.length === 0) return '#95a5a6';
+            
+            const lastPoint = shapePoints[shapePoints.length - 1];
+            
+            let bestMatch = null;
+            let minDistance = Infinity;
+            
+            for (const [vehicleId, destId] of Object.entries(vehicleDestinations)) {
+                const normalizedDestId = normalizeStopId(destId);
+                const station = stationsMap[normalizedDestId];
+                
+                if (station && station.coords) {
+                    const distance = calculateDistance(
+                        lastPoint.lat, lastPoint.lon,
+                        station.coords[0], station.coords[1]
+                    );
+                    
+                    if (distance < minDistance && distance < 500) {
+                        minDistance = distance;
+                        bestMatch = destId;
+                    }
+                }
+            }
+            
+            if (bestMatch) {
+                const uniqueDirKey = \`\${routeId}_\${bestMatch}\`;
+                const color = directionColorMap[uniqueDirKey];
+                if (color) {
+                    console.log(\`✓ Shape \${shapeKey} obojen u \${color} (destinacija: \${bestMatch}, udaljenost: \${minDistance.toFixed(0)}m)\`);
+                    return color;
+                }
+            }
+            
+            return '#95a5a6';
+        }
+
+        function drawAllRoutes(vehicleDestinations) {
+            routeLayer.clearLayers();
+            
+            if (izabraneLinije.length === 0) return;
+            
+            let allBounds = [];
+            
+            izabraneLinije.forEach(routeId => {
+                const paddedRouteId = padRouteId(routeId);
+                
+                let matchingShapes = [];
+                for (let shapeKey in shapesData) {
+                    if (shapeKey.startsWith(routeId + '_') || shapeKey.startsWith(paddedRouteId + '_')) {
+                        matchingShapes.push(shapeKey);
+                    }
+                }
+                
+                console.log(\`Route \${routeId}: found \${matchingShapes.length} shapes\`);
+                
+                matchingShapes.forEach(shapeKey => {
+                    const shapePoints = shapesData[shapeKey];
+                    
+                    if (!shapePoints || shapePoints.length === 0) return;
+                    
+                    let shapeColor = shapeToColorMapGlobal[shapeKey];
+                    
+                    if (!shapeColor) {
+                        shapeColor = determineShapeColorByDestination(shapeKey, routeId, vehicleDestinations);
+                        shapeToColorMapGlobal[shapeKey] = shapeColor;
+                    }
+                    
+                    console.log(\`Drawing shape \${shapeKey} with color \${shapeColor}\`);
+                    
+                    const latLngs = shapePoints.map(point => [point.lat, point.lon]);
+                    
+                    const polyline = L.polyline(latLngs, {
+                        color: shapeColor,
+                        weight: 4,
+                        opacity: 0.6,
+                        smoothFactor: 1
+                    });
+                    
+                    polyline.addTo(routeLayer);
+                    allBounds.push(polyline.getBounds());
+                });
+            });
+            
+            if (allBounds.length > 0) {
+                const combinedBounds = allBounds.reduce((acc, bounds) => {
+                    return acc.extend(bounds);
+                }, allBounds[0]);
+                
+                map.fitBounds(combinedBounds, {
+                    padding: [50, 50]
+                });
+            }
+        }
+ 
+
  
         async function osveziPodatke() {
             if (izabraneLinije.length === 0) {
                 busLayer.clearLayers();
                 destinationLayer.clearLayers();
+                routeLayer.clearLayers();
+                directionColorMap = {};
+                shapeToColorMapGlobal = {};
                 startTimer(0); 
                 return;
             }
@@ -436,6 +443,7 @@ export default function handler(req, res) {
             document.getElementById('statusText').style.color = "#e67e22";
  
             try {
+
                 const response = await fetch('/api/vehicles', { 
                     method: 'GET',
                     cache: 'no-store',
@@ -450,12 +458,55 @@ export default function handler(req, res) {
                 const data = await response.json();
  
                 if (data && data.vehicles) {
+
                     const vehicleDestinations = {};
+                    vehicleShapeMap = {};
+                    const vehicleDelays = {};
+                    
                     data.tripUpdates.forEach(update => {
                         vehicleDestinations[update.vehicleId] = update.destination;
+                        if (update.shapeId) {
+                            vehicleShapeMap[update.vehicleId] = update.shapeId;
+                        }
+                        if (update.delay !== undefined) {
+                            vehicleDelays[update.vehicleId] = update.delay;
+                        }
+                    });
+
+                    console.log('🔍 Sample tripUpdate:', data.tripUpdates[0]);
+console.log('📊 Vehicle Delays:', vehicleDelays);
+                    
+                    const vozila = data.vehicles.filter(v => {
+                        const routeId = normalizeRouteId(v.routeId);
+                        return izabraneLinije.includes(routeId);
                     });
                     
-                    crtajVozila(data.vehicles, vehicleDestinations);
+                    vozila.forEach(v => {
+                        const route = normalizeRouteId(v.routeId);
+                        const vehicleId = v.id;
+                        const destId = vehicleDestinations[vehicleId] || "Unknown";
+                        const uniqueDirKey = \`\${route}_\${destId}\`;
+                        
+                        if (!directionColorMap[uniqueDirKey]) {
+                            const nextColorIndex = Object.keys(directionColorMap).length % colors.length;
+                            directionColorMap[uniqueDirKey] = colors[nextColorIndex];
+                        }
+                        
+                        const shapeId = vehicleShapeMap[vehicleId];
+                        if (shapeId) {
+                            if (!shapeToColorMapGlobal[shapeId]) {
+                                shapeToColorMapGlobal[shapeId] = directionColorMap[uniqueDirKey];
+                                console.log(\`✓ Direktno mapiranje: \${shapeId} -> \${directionColorMap[uniqueDirKey]} (dest: \${destId})\`);
+                            }
+                        }
+                    });
+                    
+                    console.log('Direction Color Map:', directionColorMap);
+                    console.log('Vehicle Destinations:', vehicleDestinations);
+                    
+                    drawAllRoutes(vehicleDestinations);
+                    crtajVozila(data.vehicles, vehicleDestinations, vehicleDelays);
+                    
                     const timeStr = new Date().toLocaleTimeString();
                     document.getElementById('statusText').innerHTML = \`Ažurirano: <b>\${timeStr}</b>\`;
                     document.getElementById('statusText').style.color = "#27ae60";
@@ -469,15 +520,17 @@ export default function handler(req, res) {
             startTimer(refreshTime);
         }
  
-        function crtajVozila(vehicles, vehicleDestinations) {
+        function crtajVozila(vehicles, vehicleDestinations, vehicleDelays) {
             busLayer.clearLayers();
             destinationLayer.clearLayers();
  
+           
             const vozila = vehicles.filter(v => {
                 const routeId = normalizeRouteId(v.routeId);
                 return izabraneLinije.includes(routeId);
             });
 
+  
             let destinations = new Set();
             let destinationInfo = {};
  
@@ -489,19 +542,17 @@ export default function handler(req, res) {
                 const normalizedId = normalizeStopId(destId);
                 const uniqueDirKey = \`\${route}_\${destId}\`;
                 
-                if (!directionColorMap[uniqueDirKey]) {
-                    const nextColorIndex = Object.keys(directionColorMap).length % colors.length;
-                    directionColorMap[uniqueDirKey] = colors[nextColorIndex];
-                }
+                const color = directionColorMap[uniqueDirKey];
                 
                 destinations.add(destId);
                 destinationInfo[destId] = {
-                    color: directionColorMap[uniqueDirKey],
+                    color: color,
                     normalizedId: normalizedId,
                     route: route
                 };
             });
 
+     
             destinations.forEach(destId => {
                 const info = destinationInfo[destId];
                 const station = stationsMap[info.normalizedId];
@@ -533,6 +584,7 @@ export default function handler(req, res) {
                 }
             });
  
+
             vozila.forEach(v => {
                 const id = v.id;
                 const label = v.label;
@@ -547,11 +599,31 @@ export default function handler(req, res) {
                 const station = stationsMap[normalizedId];
                 const destName = station ? station.name : destId;
                 
+                // Dodaj delay logiku
+                const delay = vehicleDelays[id];
+                let delayText = '';
+                
+                if (delay !== undefined) {
+                    const absDelay = Math.abs(delay);
+                    let delayDisplay = '';
+                    
+                    if (absDelay >= 60) {
+                        const minutes = Math.floor(absDelay / 60);
+                        const seconds = absDelay % 60;
+                        delayDisplay = \`\${minutes}m \${seconds}s\`;
+                    } else {
+                        delayDisplay = \`\${absDelay}s\`;
+                    }
+                    
+                    if (delay < 0) {
+                        delayText = \`<div class="popup-row"><span class="popup-label">Kašnjenje po turaži:</span> <span style="color:#27ae60; font-weight:bold;">\${delayDisplay} - stiže ranije</span></div>\`;
+                    } else {
+                        delayText = \`<div class="popup-row"><span class="popup-label">Kašnjenje po turaži:</span> <span style="color:#e74c3c; font-weight:bold;">\${delayDisplay}</span></div>\`;
+                    }
+                }
+                
                 const uniqueDirKey = \`\${route}_\${destId}\`;
                 const color = directionColorMap[uniqueDirKey];
-
-                // IZRAČUNAJ BRZINU
-                const speed = calculateVehicleSpeed(id, { lat, lon }, route);
  
                 let rotation = 0;
                 let hasAngle = false;
@@ -581,14 +653,6 @@ export default function handler(req, res) {
                     iconSize: [50, 56],
                     iconAnchor: [25, 28]
                 });
-
-                // DODAJ BRZINU U POPUP
-                let speedText = '';
-                if (speed !== null && speed !== undefined && speed > 0) {
-                    speedText = \`<div class="popup-row"><span class="popup-label">Prosečna brzina:</span> <b style="color: #2980b9;">\${speed} km/h</b></div>\`;
-                } else {
-                    speedText = \`<div class="popup-row"><span class="popup-label">Brzina:</span> <span style="color: #95a5a6;">Računanje...</span></div>\`;
-                }
  
                 const popupContent = \`
                     <div class="popup-content">
@@ -597,7 +661,7 @@ export default function handler(req, res) {
                         <hr style="margin: 5px 0; border-color:#eee;">
                         <div class="popup-row"><span class="popup-label">Polazak:</span> <b>\${startTime}</b></div>
                         <div class="popup-row"><span class="popup-label">Smer (ide ka):</span> <span style="color:\${color}; font-weight:bold;">\${destName}</span></div>
-                        \${speedText}
+                        \${delayText}
                     </div>
                 \`;
  
@@ -615,16 +679,19 @@ export default function handler(req, res) {
             return brng;
         }
  
+
+ 
         function dodajLiniju() {
             const input = document.getElementById('lineInput');
             const val = input.value.trim();
 
             if (!val) return;
-            if (izabraneLinije.length >= 5) { 
-                alert("Maksimalno 5 linija!"); 
+            if (izabraneLinije.length >= 10) { 
+                alert("Maksimalno 10 linija!"); 
                 return; 
             }
             
+
             const routeId = findRouteId(val);
             if (!routeId) {
                 alert(\`Linija "\${val}" nije pronađena! Pokušaj sa drugim nazivom.\`);
@@ -648,6 +715,21 @@ export default function handler(req, res) {
  
         function ukloniLiniju(linija) {
             izabraneLinije = izabraneLinije.filter(l => l !== linija);
+            
+            const keysToRemove = [];
+            for (let key in directionColorMap) {
+                if (key.startsWith(linija + '_')) {
+                    keysToRemove.push(key);
+                }
+            }
+            keysToRemove.forEach(key => delete directionColorMap[key]);
+            
+            for (let shapeKey in shapeToColorMapGlobal) {
+                if (shapeKey.startsWith(linija + '_') || shapeKey.startsWith(padRouteId(linija) + '_')) {
+                    delete shapeToColorMapGlobal[shapeKey];
+                }
+            }
+            
             azurirajListu();
             osveziPodatke();
         }
@@ -660,40 +742,79 @@ export default function handler(req, res) {
                 ul.innerHTML += \`
                     <li class="line-item">
                         <span>Linija \${displayName}</span>
-                        <span class="remove-btn" onclick="ukloniLiniju('\${l}')">&times;</span>
-                    </li>\`;
+                        <span class="remove-btn" onclick="ukloniLiniju('\${l}')">✖</span>
+                    </li>
+                \`;
             });
         }
- 
+
+        function handleEnter(event) {
+            if (event.key === 'Enter') {
+                dodajLiniju();
+            }
+        }
+
         function startTimer(seconds) {
             if (timerId) clearTimeout(timerId);
             if (countdownId) clearInterval(countdownId);
-            if (seconds === 0) return;
- 
+            
+            if (seconds === 0) {
+                document.getElementById('countdown').innerText = '--';
+                return;
+            }
+            
             timeLeft = seconds;
             document.getElementById('countdown').innerText = timeLeft;
- 
+            
             countdownId = setInterval(() => {
                 timeLeft--;
-                if (timeLeft < 0) timeLeft = 0;
                 document.getElementById('countdown').innerText = timeLeft;
+                if (timeLeft <= 0) {
+                    clearInterval(countdownId);
+                }
             }, 1000);
- 
-            timerId = setTimeout(osveziPodatke, seconds * 1000);
-        }
- 
-        function handleEnter(e) { if (e.key === 'Enter') dodajLiniju(); }
-
-        // INICIJALIZACIJA
-        async function init() {
-            await loadStations();
-            await loadRouteNames();
-            await loadShapes();
-            console.log('✅ Aplikacija inicijalizovana');
+            
+            timerId = setTimeout(() => {
+                osveziPodatke();
+            }, seconds * 1000);
         }
 
-        init();
- 
+        // ====== AUTOMATSKO UČITAVANJE LINIJE IZ URL-a ======
+        let urlLineLoaded = false;
+
+        function checkUrlParameter() {
+            if (urlLineLoaded) return;
+            
+            const urlParams = new URLSearchParams(window.location.search);
+            const lineParam = urlParams.get('line');
+            
+            if (lineParam) {
+                const waitForRouteNames = setInterval(() => {
+                    if (Object.keys(routeNamesMap).length > 0) {
+                        clearInterval(waitForRouteNames);
+                        
+                        if (urlLineLoaded) return;
+                        urlLineLoaded = true;
+                        
+                        const routeId = findRouteId(lineParam);
+                        if (routeId && !izabraneLinije.includes(routeId)) {
+                            document.getElementById('lineInput').value = lineParam;
+                            dodajLiniju();
+                        }
+                        
+                        window.history.replaceState({}, document.title, window.location.pathname);
+                    }
+                }, 200);
+                
+                setTimeout(() => {
+                    clearInterval(waitForRouteNames);
+                }, 5000);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(checkUrlParameter, 500);
+        });
     </script>
 </body>
 </html>
