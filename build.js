@@ -535,6 +535,7 @@ console.log('\n🔗 Creating main index.js...\n');
 
 const indexContent = `// src/index.js - Main Cloudflare Worker
 import { STATIC_ASSETS } from './assets.js';
+import { handleAuth } from './handlers/auth.js';
 import { handleVehicles } from './handlers/vehicles.js';
 import { handleGetSheetData } from './handlers/get-sheet-data.js';
 import { handleUpdateSheet } from './handlers/update-sheet.js';
@@ -565,7 +566,10 @@ export default {
       let response;
 
       // ==================== API ROUTES ====================
-      if (path === '/api/vehicles') {
+      if (path === '/api/auth') {
+        response = await handleAuth(request, env);
+      }
+      else if (path === '/api/vehicles') {
         response = await handleVehicles(request, env);
       }
       else if (path === '/api/get-sheet-data') {
