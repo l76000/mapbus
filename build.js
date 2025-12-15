@@ -260,22 +260,85 @@ handlersToConvert.forEach(({ source, dest, name }) => {
     
     // Remove Node.js imports
     content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    content = content.replace(/import\s+\{[^}]*\}\s+from\s+['"]googleapis['"]\s*;?\s*/g, '');
     
-    // Add Worker imports
+    // Add Worker imports at the top
     if (!content.includes('getSheetsClient')) {
       content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
     }
     
-    // Replace export pattern
+    // Replace default export handler with named export
     content = content.replace(
-      /export\s+async\s+function\s+handle\w+/g,
-      `export async function ${name}`
+      /export\s+default\s+async\s+function\s+handler\s*\(/g,
+      `export async function ${name}(`
     );
+    
+    // Also handle already-named exports
+    content = content.replace(
+      /export\s+async\s+function\s+handle\w+\s*\(/g,
+      `export async function ${name}(`
+    );
+    
+    // Replace req/res with request/env for Vercel-style handlers
+    if (content.includes('req, res')) {
+      content = content.replace(/function\s+\w+\s*\(\s*req\s*,\s*res\s*\)/g, `function ${name}(request, env)`);
+      
+      // Convert res.setHeader
+      content = content.replace(/res\.setHeader\([^)]+\)\s*;?\s*/g, '');
+      
+      // Convert res.status().json()
+      content = content.replace(
+        /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
+        'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+      );
+      
+      content = content.replace(
+        /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
+        'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+      );
+      
+      // Convert res.status().end()
+      content = content.replace(
+        /return\s+res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
+        'return new Response(null, { status: $1 })'
+      );
+      
+      // Add request body parsing if needed
+      if (content.includes('req.body')) {
+        const funcMatch = content.match(new RegExp(`export async function ${name}\\s*\\([^)]*\\)\\s*\\{`));
+        if (funcMatch) {
+          content = content.replace(
+            new RegExp(`(export async function ${name}\\s*\\([^)]*\\)\\s*\\{)`),
+            `$1\n  const body = request.method === "POST" ? await request.json() : {};`
+          );
+        }
+        content = content.replace(/req\.body/g, 'body');
+      }
+      
+      // Add query params parsing if needed
+      if (content.includes('req.query')) {
+        const funcMatch = content.match(new RegExp(`export async function ${name}\\s*\\([^)]*\\)\\s*\\{`));
+        if (funcMatch) {
+          content = content.replace(
+            new RegExp(`(export async function ${name}\\s*\\([^)]*\\)\\s*\\{)`),
+            `$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);`
+          );
+        }
+        content = content.replace(/req\.query/g, 'query');
+      }
+      
+      // Replace req.method
+      content = content.replace(/req\.method/g, 'request.method');
+    }
     
     // Replace process.env with env
     content = content.replace(/process\.env\./g, 'env.');
     
     // Replace Google Sheets initialization
+    content = content.replace(
+      /const\s+auth\s*=\s*new\s+google\.auth\.GoogleAuth\([^}]+\}\s*\)\s*;?\s*/g,
+      ''
+    );
     content = content.replace(
       /const\s+sheets\s*=\s*google\.sheets\([^)]+\);?/g,
       'const sheets = await getSheetsClient(env);'
