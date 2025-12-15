@@ -238,28 +238,51 @@ function base64Decode(base64) {
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
 
-// crypto-utils.js
-const cryptoUtilsContent = `// src/utils/crypto-utils.js
-export async function hashPassword(password) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-export async function verifyPassword(password, hashedPassword) {
-  const hash = await hashPassword(password);
-  return hash === hashedPassword;
-}`;
-
-fs.writeFileSync('src/utils/crypto-utils.js', cryptoUtilsContent);
-console.log('✓ Created src/utils/crypto-utils.js');
-
 // =====================================================
 // STEP 2: Create handler files
 // =====================================================
 console.log('\n📁 Creating handlers...\n');
+
+// Copy and convert existing handlers if they exist
+const handlersToConvert = [
+  { source: 'api/get-sheet-data.js', dest: 'src/handlers/get-sheet-data.js', name: 'handleGetSheetData' },
+  { source: 'api/update-sheet.js', dest: 'src/handlers/update-sheet.js', name: 'handleUpdateSheet' },
+  { source: 'api/update-departures-sheet.js', dest: 'src/handlers/update-departures-sheet.js', name: 'handleUpdateDeparturesSheet' }
+];
+
+handlersToConvert.forEach(({ source, dest, name }) => {
+  if (fs.existsSync(source)) {
+    let content = fs.readFileSync(source, 'utf8');
+    
+    // Remove Node.js imports
+    content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    
+    // Add Worker imports
+    if (!content.includes('getSheetsClient')) {
+      content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
+    }
+    
+    // Replace export pattern
+    content = content.replace(
+      /export\s+async\s+function\s+handle\w+/g,
+      `export async function ${name}`
+    );
+    
+    // Replace process.env with env
+    content = content.replace(/process\.env\./g, 'env.');
+    
+    // Replace Google Sheets initialization
+    content = content.replace(
+      /const\s+sheets\s*=\s*google\.sheets\([^)]+\);?/g,
+      'const sheets = await getSheetsClient(env);'
+    );
+    
+    fs.writeFileSync(dest, content);
+    console.log(`✓ Converted ${source} → ${dest}`);
+  } else {
+    console.log(`⚠️  Skipped ${source} (not found)`);
+  }
+});
 
 // stations.js handler
 const stationsHandler = `// src/handlers/stations.js
@@ -444,90 +467,7 @@ function isValidGarageNumber(label) {
 fs.writeFileSync('src/handlers/vehicles.js', vehiclesHandler);
 console.log('✓ Created src/handlers/vehicles.js');
 
-// Convert update-sheet.js and update-departures-sheet.js with proper transformation
-console.log('\n📝 Converting Sheets handlers...\n');
-
-// Helper function to convert handlers
-function convertHandler(sourceFile, destFile, handlerName) {
-  if (!fs.existsSync(sourceFile)) {
-    console.log(`⚠️  Skipped ${sourceFile} (not found)`);
-    return;
-  }
-  
-  let content = fs.readFileSync(sourceFile, 'utf8');
-  
-  // Remove Node.js imports
-  content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]crypto['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]fs['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]path['"]\s*;?\s*/g, '');
-  
-  // Add imports
-  content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
-  
-  // Replace export default function handler
-  content = content.replace(
-    /export default async function handler\s*\(/g,
-    `export async function ${handlerName}(`
-  );
-  
-  // Replace req/res with request
-  content = content.replace(/\breq\.method\b/g, 'request.method');
-  content = content.replace(/\breq\.query\b/g, 'query');
-  content = content.replace(/\breq\.body\b/g, 'body');
-  
-  // Parse query params
-  if (content.includes('query')) {
-    content = content.replace(
-      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{)/,
-      '$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);'
-    );
-  }
-  
-  // Parse request body
-  if (content.includes('body')) {
-    content = content.replace(
-      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{(?:\s*const url[^;]+;\s*const query[^;]+;)?)/,
-      '$1\n  const body = request.method === "POST" ? await request.json() : {};'
-    );
-  }
-  
-  // Replace res.status().end()
-  content = content.replace(
-    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
-    'return new Response(null, { status: $1 })'
-  );
-  
-  // Replace res.status().json()
-  content = content.replace(
-    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-  );
-  
-  content = content.replace(
-    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-  );
-  
-  // Remove res.setHeader
-  content = content.replace(/res\.setHeader\s*\([^)]+\)\s*;?\s*/g, '');
-  
-  // Replace process.env with env
-  content = content.replace(/process\.env\./g, 'env.');
-  
-  // Replace Google Sheets setup
-  content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
-  
-  fs.writeFileSync(destFile, content);
-  console.log(`✓ Converted ${sourceFile} → ${destFile}`);
-}
-
-convertHandler('api/update-sheet.js', 'src/handlers/update-sheet.js', 'handleUpdateSheet');
-convertHandler('api/update-departures-sheet.js', 'src/handlers/update-departures-sheet.js', 'handleUpdateDeparturesSheet');
-
-// Create simplified HTML handlers
-console.log('\n📄 Creating HTML handlers...\n');
-
+// sve.js handler
 const sveHandler = `// src/handlers/sve.js
 export async function handleSve(request, env) {
   const html = \`<!DOCTYPE html>
@@ -547,64 +487,11 @@ export async function handleSve(request, env) {
             box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 2000; text-align: center;
         }
         .loading-card.hidden { display: none; }
-        .spinner {
-            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
-            width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .search-box {
-            position: absolute; top: 20px; left: 20px; z-index: 1000;
-            background: white; padding: 15px; border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 300px;
-        }
-        .search-box input {
-            width: 100%; padding: 10px; border: 2px solid #ddd;
-            border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.3s;
-        }
-        .search-box input:focus { border-color: #3498db; }
-        #searchResults { margin-top: 10px; max-height: 200px; overflow-y: auto; }
-        .search-result-item {
-            padding: 10px; cursor: pointer; border-radius: 5px;
-            margin-bottom: 5px; background: #f8f9fa; transition: background 0.2s;
-        }
-        .search-result-item:hover { background: #e9ecef; }
-        .bus-icon-container { background: none; border: none; }
-        .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
-        .bus-circle {
-            width: 32px; height: 32px; border-radius: 50%; color: white;
-            display: flex; justify-content: center; align-items: center;
-            font-weight: bold; font-size: 13px; border: 2px solid white;
-            box-shadow: 0 3px 6px rgba(0,0,0,0.4);
-            position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 20;
-        }
-        .bus-garage-label {
-            position: absolute; top: 36px; left: 50%; transform: translateX(-50%);
-            font-size: 9px; font-weight: bold; color: white;
-            background: rgba(0, 0, 0, 0.7); padding: 2px 5px;
-            border-radius: 3px; white-space: nowrap; z-index: 19;
-        }
-        .bus-arrow {
-            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 10; transition: transform 0.5s linear;
-        }
-        .arrow-head {
-            width: 0; height: 0; border-left: 7px solid transparent;
-            border-right: 7px solid transparent; border-bottom: 12px solid #333;
-            position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
-        }
-        .popup-content { font-size: 13px; line-height: 1.6; }
-        .popup-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .popup-label { font-weight: bold; color: #555; margin-right: 10px; }
     </style>
 </head>
 <body>
     <div id="loadingCard" class="loading-card">
-        <div class="spinner"></div>
         <p>Učitavanje vozila...</p>
-    </div>
-    <div class="search-box">
-        <input type="text" id="searchInput" placeholder="Pretraži vozilo (garažni broj)..." />
-        <div id="searchResults"></div>
     </div>
     <div id="map"></div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -625,8 +512,6 @@ export async function handleSve(request, env) {
 
 fs.writeFileSync('src/handlers/sve.js', sveHandler);
 console.log('✓ Created src/handlers/sve.js');
-
-// linije.js would be similar - create if needed
 
 // =====================================================
 // STEP 3: Bundle static assets
@@ -672,6 +557,7 @@ import { handleUpdateDeparturesSheet } from './handlers/update-departures-sheet.
 import { handleStations } from './handlers/stations.js';
 import { handleConfig } from './handlers/config.js';
 import { handleSve } from './handlers/sve.js';
+import { handleGetSheetData } from './handlers/get-sheet-data.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -702,6 +588,9 @@ export default {
       }
       else if (path === '/api/update-departures-sheet') {
         response = await handleUpdateDeparturesSheet(request, env);
+      }
+      else if (path === '/api/get-sheet-data') {
+        response = await handleGetSheetData(request, env);
       }
       else if (path === '/api/stations') {
         response = await handleStations(request, env);
@@ -800,7 +689,7 @@ function getContentType(path) {
     'txt': 'text/plain; charset=utf-8'
   };
   return types[ext] || 'application/octet-stream';
-}\`;
+}`;
 
 fs.writeFileSync('src/index.js', indexContent);
 console.log('✓ Created src/index.js');
@@ -808,7 +697,7 @@ console.log('✓ Created src/index.js');
 // =====================================================
 // DONE
 // =====================================================
-console.log('\\n✅ Build complete!\\n');
+console.log('\n✅ Build complete!\n');
 console.log('📝 Next steps:');
 console.log('  1. Set secrets:');
 console.log('     wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
