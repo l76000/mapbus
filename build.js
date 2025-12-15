@@ -258,14 +258,17 @@ handlersToConvert.forEach(({ source, dest, name }) => {
   if (fs.existsSync(source)) {
     let content = fs.readFileSync(source, 'utf8');
     
-    // Remove Node.js imports
-    content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    // Remove ALL Node.js/googleapis imports
     content = content.replace(/import\s+\{[^}]*\}\s+from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    content = content.replace(/import\s+\{[^}]*google[^}]*\}\s+from\s+['"]googleapis['"]\s*;?\s*/g, '');
+    
+    // Remove references to google.auth and google.sheets
+    content = content.replace(/const\s+auth\s*=\s*new\s+google\.auth\.GoogleAuth\([^}]+\}\s*\)\s*;?\s*/gs, '');
+    content = content.replace(/const\s+sheets\s*=\s*google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
     
     // Add Worker imports at the top
-    if (!content.includes('getSheetsClient')) {
-      content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
-    }
+    content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
     
     // Replace default export handler with named export
     content = content.replace(
@@ -280,11 +283,19 @@ handlersToConvert.forEach(({ source, dest, name }) => {
     );
     
     // Replace req/res with request/env for Vercel-style handlers
-    if (content.includes('req, res')) {
-      content = content.replace(/function\s+\w+\s*\(\s*req\s*,\s*res\s*\)/g, `function ${name}(request, env)`);
+    if (content.includes('req, res') || content.includes('(req,res)')) {
+      // Replace function signature
+      content = content.replace(
+        /function\s+\w+\s*\(\s*req\s*,\s*res\s*\)/g,
+        `function ${name}(request, env)`
+      );
+      content = content.replace(
+        /async\s+function\s+\w+\s*\(\s*req\s*,\s*res\s*\)/g,
+        `async function ${name}(request, env)`
+      );
       
-      // Convert res.setHeader
-      content = content.replace(/res\.setHeader\([^)]+\)\s*;?\s*/g, '');
+      // Remove res.setHeader calls
+      content = content.replace(/\s*res\.setHeader\([^)]+\)\s*;?\s*/g, '\n');
       
       // Convert res.status().json()
       content = content.replace(
@@ -293,7 +304,7 @@ handlersToConvert.forEach(({ source, dest, name }) => {
       );
       
       content = content.replace(
-        /res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
+        /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
         'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
       );
       
@@ -328,21 +339,11 @@ handlersToConvert.forEach(({ source, dest, name }) => {
       }
       
       // Replace req.method
-      content = content.replace(/req\.method/g, 'request.method');
+      content = content.replace(/\breq\.method\b/g, 'request.method');
     }
     
     // Replace process.env with env
     content = content.replace(/process\.env\./g, 'env.');
-    
-    // Replace Google Sheets initialization
-    content = content.replace(
-      /const\s+auth\s*=\s*new\s+google\.auth\.GoogleAuth\([^}]+\}\s*\)\s*;?\s*/g,
-      ''
-    );
-    content = content.replace(
-      /const\s+sheets\s*=\s*google\.sheets\([^)]+\);?/g,
-      'const sheets = await getSheetsClient(env);'
-    );
     
     fs.writeFileSync(dest, content);
     console.log(`✓ Converted ${source} → ${dest}`);
@@ -554,11 +555,72 @@ export async function handleSve(request, env) {
             box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 2000; text-align: center;
         }
         .loading-card.hidden { display: none; }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .search-box {
+            position: absolute; top: 20px; left: 20px; z-index: 1000;
+            background: white; padding: 15px; border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 300px;
+        }
+        .search-box input {
+            width: 100%; padding: 10px; border: 2px solid #ddd;
+            border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.3s;
+        }
+        .search-box input:focus { border-color: #3498db; }
+        #searchResults { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        .search-result-item {
+            padding: 10px; cursor: pointer; border-radius: 5px;
+            margin-bottom: 5px; background: #f8f9fa; transition: background 0.2s;
+        }
+        .search-result-item:hover { background: #e9ecef; }
+        .timer-box {
+            position: absolute; top: 20px; right: 20px; z-index: 1000;
+            background: white; padding: 10px 15px; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15); font-size: 14px;
+        }
+        .bus-icon-container { background: none; border: none; }
+        .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
+        .bus-circle {
+            width: 32px; height: 32px; border-radius: 50%; color: white;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; font-size: 13px; border: 2px solid white;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 20;
+        }
+        .bus-garage-label {
+            position: absolute; top: 36px; left: 50%; transform: translateX(-50%);
+            font-size: 9px; font-weight: bold; color: white;
+            background: rgba(0, 0, 0, 0.7); padding: 2px 5px;
+            border-radius: 3px; white-space: nowrap; z-index: 19;
+        }
+        .bus-arrow {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; transition: transform 0.5s linear;
+        }
+        .arrow-head {
+            width: 0; height: 0; border-left: 7px solid transparent;
+            border-right: 7px solid transparent; border-bottom: 12px solid #333;
+            position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
+        }
+        .popup-content { font-size: 13px; line-height: 1.6; }
+        .popup-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .popup-label { font-weight: bold; color: #555; margin-right: 10px; }
     </style>
 </head>
 <body>
     <div id="loadingCard" class="loading-card">
+        <div class="spinner"></div>
         <p>Učitavanje vozila...</p>
+    </div>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Pretraži vozilo (garažni broj)..." />
+        <div id="searchResults"></div>
+    </div>
+    <div class="timer-box">
+        Refresh: <span id="timer">60</span>s
     </div>
     <div id="map"></div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
