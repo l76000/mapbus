@@ -1,27 +1,19 @@
-import { google } from 'googleapis';
+// src/handlers/get-sheet-data.js
+import { getSheetsClient } from '../utils/sheets-client.js';
 
-export default async function handler(req, res) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
+export async function handleGetSheetData(request, env) {
+  if (request.method !== 'GET') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth });
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
-    // Uvek čitaj iz glavnog sheet-a "Baza"
+    const sheets = await getSheetsClient(env);
+    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
     const sheetName = 'Baza';
-    console.log(`Reading from sheet: ${sheetName}`);
 
-    // Čitaj podatke
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${sheetName}!A2:F`,
@@ -30,11 +22,14 @@ export default async function handler(req, res) {
     const rows = response.data.values;
 
     if (!rows || rows.length === 0) {
-      return res.status(200).json({ 
+      return new Response(JSON.stringify({ 
         success: true, 
         vehicles: [],
         count: 0,
         sheetName: sheetName
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
@@ -47,19 +42,25 @@ export default async function handler(req, res) {
       datum: row[5] || ''
     }));
 
-    res.status(200).json({ 
+    return new Response(JSON.stringify({ 
       success: true, 
       vehicles: vehicles,
       count: vehicles.length,
       lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null,
       sheetName: sheetName
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('Google Sheets error:', error);
-    res.status(500).json({ 
+    return new Response(JSON.stringify({ 
       error: 'Failed to read sheet',
       details: error.message 
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }
