@@ -1,17 +1,19 @@
 {
-  "name": "bus-tracker",
+  "name": "mapbus",
   "version": "1.0.0",
-  "description": "Real-time bus tracking system",
-  "main": "index.js",
+  "description": "MapaBus on Cloudflare Workers",
+  "main": "src/index.js",
+  "type": "module",
   "scripts": {
-    "dev": "vercel dev",
     "build": "node build.js",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "dev": "wrangler dev",
+    "tail": "wrangler tail"
   },
-  "dependencies": {
-    "googleapis": "^128.0.0"
-  },
-  "engines": {
-    "node": ">=18.x"
+  "keywords": ["cloudflare", "workers", "bus", "transit"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "wrangler": "^3.0.0"
   }
 }
