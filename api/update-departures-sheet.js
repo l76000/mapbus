@@ -1,32 +1,23 @@
-import { google } from 'googleapis';
+// src/handlers/update-departures-sheet.js - FIXED for Cloudflare Workers
+import { getSheetsClient } from '../utils/sheets-client.js';
 
-export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+export async function handleUpdateDeparturesSheet(request, env) {
+  // CORS headers
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 200 });
   }
 
   // ===== GET za čitanje podataka =====
-  if (req.method === 'GET') {
-    const isYesterdayRequest = req.query.yesterday === 'true';
+  if (request.method === 'GET') {
+    const url = new URL(request.url);
+    const isYesterdayRequest = url.searchParams.get('yesterday') === 'true';
     const sheetName = isYesterdayRequest ? 'Juce' : 'Polasci';
     
     console.log(`=== Reading ${sheetName} Sheet ===`);
     
     try {
-      const auth = new google.auth.GoogleAuth({
-        credentials: {
-          client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
-          private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY.replace(/\\n/g, '\n'),
-        },
-        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
-      });
-
-      const sheets = google.sheets({ version: 'v4', auth });
-      const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+      const sheets = await getSheetsClient(env);
+      const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
 
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId,
@@ -69,40 +60,41 @@ export default async function handler(req, res) {
 
       if (currentRoute) routes.push(currentRoute);
 
-      return res.status(200).json({
+      return new Response(JSON.stringify({
         success: true,
         routes: routes,
         totalRoutes: routes.length,
         sheetName: sheetName
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
       });
 
     } catch (error) {
       console.error('Read error:', error);
-      return res.status(500).json({
+      return new Response(JSON.stringify({
         success: false,
         error: error.message
+      }), {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
       });
     }
   }
 
   // ===== POST za ažuriranje - čita iz Baza sheet-a =====
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+  if (request.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { 'Content-Type': 'application/json' }
+    });
   }
 
   console.log('=== Updating Polasci from Baza Sheet ===');
   
   try {
-    const auth = new google.auth.GoogleAuth({
-      credentials: {
-        client_email: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
-        private_key: process.env.GOOGLE_SHEETS_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      },
-      scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-    });
-
-    const sheets = google.sheets({ version: 'v4', auth });
-    const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+    const sheets = await getSheetsClient(env);
+    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
 
     // KORAK 1: Pročitaj podatke iz Baza sheet-a
     console.log('Reading from Baza sheet...');
@@ -114,11 +106,14 @@ export default async function handler(req, res) {
     const bazaRows = bazaResponse.data.values || [];
     
     if (bazaRows.length === 0) {
-      return res.status(200).json({
+      return new Response(JSON.stringify({
         success: true,
         message: 'No data in Baza sheet',
         newDepartures: 0,
         updatedDepartures: 0
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
@@ -135,13 +130,13 @@ export default async function handler(req, res) {
     
     const currentHour = belgradTime.getHours();
     const currentMinute = belgradTime.getMinutes();
-    const currentTimeInMinutes = currentHour * 60 + currentMinute;
 
     console.log(`Today's date: ${todayDate}, Current time: ${currentHour}:${currentMinute}`);
 
-    // NOVA LOGIKA: Prvo grupiši po vozilu da uzmeš samo najkasniji polazak
-    const vehicleLatestDeparture = new Map();
-    
+    // Grupisanje po linija/smer
+    const routeMap = {};
+    let processedToday = 0;
+
     bazaRows.forEach(row => {
       const vozilo = row[0] || '';
       const linija = row[1] || '';
@@ -156,99 +151,37 @@ export default async function handler(req, res) {
       
       // Samo današnja vozila
       if (datum !== todayDate) return;
-      
-      const polazakParts = polazak.split(':');
-      const polazakHour = parseInt(polazakParts[0]) || 0;
-      const polazakMinute = parseInt(polazakParts[1]) || 0;
-      const polazakTimeInMinutes = polazakHour * 60 + polazakMinute;
 
-      // Specijalna logika za noćne linije
-      const isNightTime = currentHour >= 0 && currentHour < 1;
-      const isLateEvening = polazakHour >= 22;
-
-      if (isNightTime && isLateEvening) {
-        // OK, noćna linija
-      } else if (polazakTimeInMinutes > currentTimeInMinutes) {
-        // Skip budući polasci
-        return;
+      // Dodaj u routeMap
+      if (!routeMap[linija]) {
+        routeMap[linija] = {};
       }
-
-      // Proveri da li već postoji unos za ovo vozilo
-      const vehicleKey = `${vozilo}|${linija}|${smer}`;
       
-      if (!vehicleLatestDeparture.has(vehicleKey)) {
-        vehicleLatestDeparture.set(vehicleKey, {
-          vozilo,
-          linija,
-          polazak,
-          smer,
-          timestamp,
-          polazakTimeInMinutes
-        });
-      } else {
-        // Ako postoji, uporedi vremena i zadrži kasniji polazak
-        const existing = vehicleLatestDeparture.get(vehicleKey);
-        if (polazakTimeInMinutes > existing.polazakTimeInMinutes) {
-          vehicleLatestDeparture.set(vehicleKey, {
-            vozilo,
-            linija,
-            polazak,
-            smer,
-            timestamp,
-            polazakTimeInMinutes
-          });
-          console.log(`🔄 Replacing ${vozilo}: ${existing.polazak} → ${polazak} (later departure)`);
-        }
+      if (!routeMap[linija][smer]) {
+        routeMap[linija][smer] = [];
       }
+      
+      routeMap[linija][smer].push({
+        startTime: polazak,
+        vehicleLabel: vozilo,
+        timestamp: timestamp
+      });
+      
+      processedToday++;
     });
 
-    console.log(`Deduplicated to ${vehicleLatestDeparture.size} unique vehicles`);
-
-const routeMap = {};
-let processedToday = 0;
-
-bazaRows.forEach(row => {
-  const vozilo = row[0] || '';
-  const linija = row[1] || '';
-  const polazak = row[2] || '';
-  const smer = row[3] || '';
-  const timestamp = row[4] || '';
-  const datumFull = row[5] || '';
-
-  if (!vozilo || !linija || !polazak || !smer) return;
-
-  const datum = datumFull.split(' ')[0].trim();
-  
-  // Samo današnja vozila
-  if (datum !== todayDate) return;
-
-  // Dodaj direktno u routeMap - BEZ deduplikacije i BEZ vremenskog filtera
-  if (!routeMap[linija]) {
-    routeMap[linija] = {};
-  }
-  
-  if (!routeMap[linija][smer]) {
-    routeMap[linija][smer] = [];
-  }
-  
-  routeMap[linija][smer].push({
-    startTime: polazak,
-    vehicleLabel: vozilo,
-    timestamp: timestamp
-  });
-  
-  processedToday++;
-});
-
-console.log(`Processed ${processedToday} valid departures`);
-console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
+    console.log(`Processed ${processedToday} valid departures`);
+    console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     if (Object.keys(routeMap).length === 0) {
-      return res.status(200).json({
+      return new Response(JSON.stringify({
         success: true,
         message: 'No vehicles seen today',
         newDepartures: 0,
         updatedDepartures: 0
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
       });
     }
 
@@ -337,7 +270,7 @@ console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
       console.log('No existing data, starting fresh');
     }
 
-    // KORAK 4: Integracija novih podataka u strukturu
+    // KORAK 4: Integracija novih podataka
     let updatedCount = 0;
     let newCount = 0;
 
@@ -360,7 +293,6 @@ console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
           const key = `${route}|${direction}|${dep.startTime}|${dep.vehicleLabel}`;
           
           if (existingDeparturesMap.has(key)) {
-            const existing = existingDeparturesMap.get(key);
             const index = existingDepartures.findIndex(
               d => d.startTime === dep.startTime && d.vehicleLabel === dep.vehicleLabel
             );
@@ -380,7 +312,7 @@ console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     console.log(`Updates: ${updatedCount}, New: ${newCount}`);
 
-    // KORAK 5: Regeneriši ceo sheet sa ažuriranim podacima
+    // KORAK 5: Regeneriši sheet
     const allRows = [];
     const formatRequests = [];
     let currentRow = 0;
@@ -514,20 +446,27 @@ console.log(`Grouped into ${Object.keys(routeMap).length} routes`);
 
     console.log('=== Update Complete ===');
 
-    res.status(200).json({ 
+    return new Response(JSON.stringify({ 
       success: true, 
       newDepartures: newCount,
       updatedDepartures: updatedCount,
       totalRows: allRows.length,
       timestamp,
       sheetUsed: sheetName
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     });
 
   } catch (error) {
     console.error('Error:', error);
-    res.status(500).json({ 
+    return new Response(JSON.stringify({ 
       error: 'Update failed',
-      details: error.message
+      details: error.message,
+      stack: error.stack
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
     });
   }
 }
