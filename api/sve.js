@@ -1,11 +1,12 @@
-export default function handler(req, res) {
+// src/handlers/sve.js - FIXED with all required DOM elements
+export async function handleSve(request, env) {
   const html = `
 <!DOCTYPE html>
 <html lang="sr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sva Vozila</title>
+    <title>Sva Vozila - MapaBus</title>
     
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
@@ -156,17 +157,68 @@ export default function handler(req, res) {
             margin-bottom: 4px;
         }
         .popup-label { font-weight: bold; color: #555; margin-right: 10px; }
+        
+        /* Stats panel */
+        .stats-panel {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            z-index: 1000;
+            min-width: 200px;
+        }
+        
+        .stats-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            color: #333;
+        }
+        
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+            font-size: 14px;
+        }
+        
+        .stat-label {
+            color: #666;
+        }
+        
+        .stat-value {
+            font-weight: bold;
+            color: #3498db;
+        }
     </style>
 </head>
 <body>
     <div id="loadingCard" class="loading-card">
         <div class="spinner"></div>
-        <p>Učitavanje vozila...</p>
+        <p id="loadingText">Učitavanje vozila...</p>
     </div>
     
     <div class="search-box">
         <input type="text" id="searchInput" placeholder="Pretraži vozilo (garažni broj)..." />
         <div id="searchResults"></div>
+    </div>
+    
+    <div class="stats-panel">
+        <h3>Statistika</h3>
+        <div class="stat-item">
+            <span class="stat-label">Ukupno vozila:</span>
+            <span class="stat-value" id="totalVehicles">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Aktivne linije:</span>
+            <span class="stat-value" id="totalRoutes">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">Poslednje ažuriranje:</span>
+            <span class="stat-value" id="lastUpdate">-</span>
+        </div>
     </div>
     
     <div id="map"></div>
@@ -175,6 +227,26 @@ export default function handler(req, res) {
     <script src="/app.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            // Check if all required elements exist
+            const requiredElements = [
+                'map',
+                'loadingCard', 
+                'loadingText',
+                'searchInput',
+                'searchResults',
+                'totalVehicles',
+                'totalRoutes',
+                'lastUpdate'
+            ];
+            
+            const missingElements = requiredElements.filter(id => !document.getElementById(id));
+            
+            if (missingElements.length > 0) {
+                console.error('Missing DOM elements:', missingElements);
+                return;
+            }
+            
+            console.log('✓ All required DOM elements present');
             initApp();
         });
     </script>
@@ -182,6 +254,8 @@ export default function handler(req, res) {
 </html>
   `;
 
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.status(200).send(html);
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
 }
