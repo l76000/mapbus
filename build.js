@@ -10,174 +10,9 @@ if (!fs.existsSync('src/handlers')) fs.mkdirSync('src/handlers');
 if (!fs.existsSync('src/utils')) fs.mkdirSync('src/utils');
 
 // =====================================================
-// STEP 1: Convert API handlers to Workers format
+// STEP 1: Create utility files FIRST
 // =====================================================
-console.log('📁 Converting API routes...\n');
-
-const apiFiles = {
-  // Skip auth.js, vehicles.js, stations.js, get-sheet-data.js, update-sheet.js - create manually
-  // Skip linije.js and sve.js - they're HTML servers
-  'api/update-departures-sheet.js': 'src/handlers/update-departures-sheet.js',
-  'api/reset-departures.js': 'src/handlers/reset-departures.js',
-  'api/hourly-check.js': 'src/handlers/hourly-check.js',
-  'api/config.js': 'src/handlers/config.js',
-};
-
-Object.entries(apiFiles).forEach(([source, dest]) => {
-  if (!fs.existsSync(source)) {
-    console.log(`⚠️  Skipped ${source} (not found)`);
-    return;
-  }
-  
-  let content = fs.readFileSync(source, 'utf8');
-  
-  // Remove Node.js imports
-  content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]crypto['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]fs['"]\s*;?\s*/g, '');
-  content = content.replace(/import\s+.*from\s+['"]path['"]\s*;?\s*/g, '');
-  
-  // Generate handler name from filename
-  const handlerName = 'handle' + path.basename(dest, '.js')
-    .split('-')
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join('');
-  
-  // Replace export default function handler
-  content = content.replace(
-    /export default async function handler\s*\(/g,
-    `export async function ${handlerName}(`
-  );
-  
-  // Also handle non-async handlers - make them async
-  content = content.replace(
-    /export default function handler\s*\(/g,
-    `export async function ${handlerName}(`
-  );
-  
-  // Replace req/res with request
-  content = content.replace(/\breq\.method\b/g, 'request.method');
-  content = content.replace(/\breq\.query\b/g, 'request.query');
-  content = content.replace(/\breq\.headers\b/g, 'request.headers');
-  content = content.replace(/\breq\.body\b/g, 'request.body');
-  
-  // Parse request body properly
-  if (content.includes('request.body')) {
-    content = content.replace(
-      /const\s+{\s*([^}]+)\s*}\s*=\s*request\.body\s*;?/g,
-      'const body = await request.json();\n  const { $1 } = body;'
-    );
-    content = content.replace(/request\.body/g, 'body');
-  }
-  
-  // Parse query params properly - inject inside function body only
-  if (content.includes('request.query')) {
-    // Find the function body and inject query parsing there
-    content = content.replace(
-      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{)/,
-      '$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);'
-    );
-    content = content.replace(/request\.query/g, 'query');
-  }
-  
-  // Parse request.headers.host properly
-  if (content.includes('request.headers.host') || content.includes('request.headers[\'host\']')) {
-    content = content.replace(/request\.headers\.host/g, 'request.headers.get(\'host\')');
-    content = content.replace(/request\.headers\[['"]host['"]\]/g, 'request.headers.get(\'host\')');
-  }
-  
-  // Replace res.status().end()
-  content = content.replace(
-    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
-    'return new Response(null, { status: $1 })'
-  );
-  
-  content = content.replace(
-    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
-    'return new Response(null, { status: $1 })'
-  );
-  
-  // Replace res.status().json() - FIXED ORDER
-  content = content.replace(
-    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
-    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-  );
-  
-  content = content.replace(
-    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*({[^}]+})\s*\)/g,
-    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
-  );
-  
-  // Replace res.setHeader
-  content = content.replace(/res\.setHeader\s*\([^)]+\)\s*;?\s*/g, '');
-  
-  // Replace res.status().send() - FIXED: Handle with and without return
-  content = content.replace(
-    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response($2, { status: $1, headers: { "Content-Type": "text/plain; charset=utf-8" } })'
-  );
-  
-  content = content.replace(
-    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.send\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response($2, { status: $1, headers: { "Content-Type": "text/plain; charset=utf-8" } })'
-  );
-  
-  // Replace res.send
-  content = content.replace(
-    /res\.send\s*\(\s*([^)]+)\s*\)/g,
-    'return new Response($1, { headers: { "Content-Type": "text/html; charset=utf-8" } })'
-  );
-  
-  // Replace process.env with env
-  content = content.replace(/process\.env\./g, 'env.');
-  
-  // Add Google Sheets client import
-  if (content.includes('google.sheets') || content.includes('sheets.spreadsheets')) {
-    content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
-    content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
-  }
-  
-  // Add crypto utilities for auth handler
-  if (source.includes('auth.js') && content.includes('crypto.createHash')) {
-    content = `import { hashPassword, verifyPassword } from '../utils/crypto-utils.js';\n\n` + content;
-    // Remove the local hash/verify functions since we'll import them
-    content = content.replace(/function hashPassword\(password\) {[^}]+}/g, '');
-    content = content.replace(/function verifyPassword\(password, hashedPassword\) {[^}]+}/g, '');
-    // Remove calls to crypto.createHash
-    content = content.replace(/crypto\.createHash\([^)]+\)[^;]+;/g, '');
-  }
-  
-  // Replace Google Auth setup in auth.js
-  if (source.includes('auth.js')) {
-    // Remove all module-level Google setup code
-    content = content.replace(/\/\/ Google Sheets setup[\s\S]*?const USERS_SHEET = ['"]Users['"];?/g, '');
-    content = content.replace(/const auth = new google\.auth\.GoogleAuth\([^;]+\);?/gs, '');
-    content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, '');
-    content = content.replace(/const SPREADSHEET_ID = (?:process\.)?env\.GOOGLE_SPREADSHEET_ID;?/g, '');
-    content = content.replace(/const USERS_SHEET = ['"]Users['"];?/g, '');
-  }
-  
-  // Add data loader for file reading
-  if (content.includes('fs.readFileSync')) {
-    content = `import { fetchDataFile } from '../utils/data-loader.js';\n` + content;
-    content = content.replace(
-      /fs\.readFileSync\s*\(\s*['"]([^'"]+)['"]\s*\)\.toString\(\)/g,
-      'await fetchDataFile("$1", env)'
-    );
-    content = content.replace(
-      /fs\.readFileSync\s*\(\s*['"]([^'"]+)['"]\s*,\s*['"]utf-?8['"]\s*\)/g,
-      'await fetchDataFile("$1", env)'
-    );
-  }
-  
-  fs.writeFileSync(dest, content);
-  console.log(`✓ Converted ${source} → ${dest}`);
-});
-
-// =====================================================
-// STEP 2: Create utility files
-// =====================================================
-console.log('\n🔧 Creating utilities...\n');
+console.log('🔧 Creating utilities...\n');
 
 // data-loader.js
 const dataLoaderContent = `// src/utils/data-loader.js
@@ -190,8 +25,8 @@ const FILE_MAP = {
   'api/shapes_gradske.txt': '/data/shapes_gradske.txt',
   'public/data/shapes.txt': '/data/shapes.txt',
   'public/data/shapes_gradske.txt': '/data/shapes_gradske.txt',
-  'api/stops.txt': '/api/stops.txt',
-  'api/stops_gradske.txt': '/api/stops_gradske.txt',
+  'api/stops.txt': '/data/stops.txt',
+  'api/stops_gradske.txt': '/data/stops_gradske.txt',
   'api/trips.txt': '/api/trips.txt',
   'api/stop_times.txt': '/api/stop_times.txt',
   'public/all.json': '/all.json',
@@ -244,90 +79,6 @@ export async function fetchDataFile(filePath, env) {
 
 fs.writeFileSync('src/utils/data-loader.js', dataLoaderContent);
 console.log('✓ Created src/utils/data-loader.js');
-
-// Create fallback handlers for stations and config
-console.log('✓ Creating fallback handlers...');
-
-// stations.js fallback
-const stationsHandler = `// src/handlers/stations.js
-import { fetchDataFile } from '../utils/data-loader.js';
-
-export async function handleStations(request, env) {
-  try {
-    // Fetch stops files
-    const [stopsText, stopsGradskeText] = await Promise.all([
-      fetchDataFile('api/stops.txt', env),
-      fetchDataFile('api/stops_gradske.txt', env)
-    ]);
-
-    const stationsMap = {};
-
-    // Parse stops.txt
-    parseStopsCSV(stopsText, stationsMap);
-    parseStopsCSV(stopsGradskeText, stationsMap);
-
-    return new Response(JSON.stringify(stationsMap), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  } catch (error) {
-    console.error('Stations error:', error);
-    return new Response(JSON.stringify({ error: error.message }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}
-
-function parseStopsCSV(csvText, stationsMap) {
-  const lines = csvText.split('\\n');
-  
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    
-    const parts = line.split(',');
-    if (parts.length < 5) continue;
-    
-    const stopId = parts[0];
-    const stopName = parts[2] || parts[1];
-    const lat = parseFloat(parts[4]);
-    const lon = parseFloat(parts[5]);
-    
-    if (!isNaN(lat) && !isNaN(lon)) {
-      stationsMap[stopId] = {
-        name: stopName,
-        coords: [lat, lon]
-      };
-    }
-  }
-}`;
-
-fs.writeFileSync('src/handlers/stations.js', stationsHandler);
-console.log('✓ Created src/handlers/stations.js');
-
-// config.js fallback
-const configHandler = `// src/handlers/config.js
-export async function handleConfig(request, env) {
-  const config = {
-    refreshInterval: 60000,
-    mapCenter: [44.8125, 20.4612],
-    mapZoom: 13,
-    colors: [
-      '#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f',
-      '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
-      '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
-    ]
-  };
-
-  return new Response(JSON.stringify(config), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' }
-  });
-}`;
-
-fs.writeFileSync('src/handlers/config.js', configHandler);
-console.log('✓ Created src/handlers/config.js');
 
 // sheets-client.js
 const sheetsClientContent = `// src/utils/sheets-client.js
@@ -487,10 +238,8 @@ function base64Decode(base64) {
 fs.writeFileSync('src/utils/sheets-client.js', sheetsClientContent);
 console.log('✓ Created src/utils/sheets-client.js');
 
-// crypto-utils.js for auth
+// crypto-utils.js
 const cryptoUtilsContent = `// src/utils/crypto-utils.js
-// Crypto utilities for Cloudflare Workers
-
 export async function hashPassword(password) {
   const encoder = new TextEncoder();
   const data = encoder.encode(password);
@@ -507,529 +256,75 @@ export async function verifyPassword(password, hashedPassword) {
 fs.writeFileSync('src/utils/crypto-utils.js', cryptoUtilsContent);
 console.log('✓ Created src/utils/crypto-utils.js');
 
-// Create auth.js handler manually (from document 20)
-const authHandlerContent = `// src/handlers/auth.js
-import { getSheetsClient } from '../utils/sheets-client.js';
-import { hashPassword, verifyPassword } from '../utils/crypto-utils.js';
+// =====================================================
+// STEP 2: Create handler files
+// =====================================================
+console.log('\n📁 Creating handlers...\n');
 
-export async function handleAuth(request, env) {
-  const { method } = request;
-  
-  let body;
-  if (method === 'POST') {
-    try {
-      body = await request.json();
-    } catch (e) {
-      return jsonResponse({ error: 'Invalid JSON' }, 400);
-    }
-  } else if (method === 'GET') {
-    const url = new URL(request.url);
-    body = Object.fromEntries(url.searchParams);
-  } else {
-    return jsonResponse({ error: 'Method not allowed' }, 405);
-  }
+// stations.js handler
+const stationsHandler = `// src/handlers/stations.js
+import { fetchDataFile } from '../utils/data-loader.js';
 
-  const { action } = body;
-
+export async function handleStations(request, env) {
   try {
-    const sheets = await getSheetsClient(env);
-    const SPREADSHEET_ID = env.GOOGLE_SPREADSHEET_ID;
-    const USERS_SHEET = 'Users';
-
-    // Get IP
-    const ip = request.headers.get('CF-Connecting-IP') || 
-               request.headers.get('X-Real-IP') || 
-               request.headers.get('X-Forwarded-For')?.split(',')[0] || 
-               'unknown';
-
-    // Load users
-    let users = [];
-    try {
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: SPREADSHEET_ID,
-        range: \`\${USERS_SHEET}!A:I\`
-      });
-
-      const rows = response.data.values || [];
-      
-      if (rows.length === 0) {
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
-          range: \`\${USERS_SHEET}!A1:I1\`,
-          valueInputOption: 'RAW',
-          resource: {
-            values: [['Username', 'PasswordHash', 'Status', 'RegisteredAt', 'LastIP', 'IPHistory', 'IsAdmin', 'LastAccess', 'Favorites']]
-          }
-        });
-      } else {
-        users = rows.slice(1).map(row => ({
-          username: row[0] || '',
-          passwordHash: row[1] || '',
-          status: row[2] || 'pending',
-          registeredAt: row[3] || '',
-          lastIP: row[4] || '',
-          ipHistory: row[5] || '',
-          isAdmin: row[6] === 'true' || row[6] === 'TRUE' || false,
-          lastAccess: row[7] || '',
-          favorites: row[8] || ''
-        }));
+    const allJsonText = await fetchDataFile('public/all.json', env);
+    const stations = JSON.parse(allJsonText);
+    
+    const stationsMap = {};
+    
+    stations.forEach(station => {
+      if (station.id && station.name && station.coords) {
+        stationsMap[station.id] = {
+          name: station.name,
+          coords: [parseFloat(station.coords[0]), parseFloat(station.coords[1])]
+        };
       }
-    } catch (error) {
-      if (error.message && error.message.includes('Unable to parse range')) {
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: SPREADSHEET_ID,
-          resource: {
-            requests: [{
-              addSheet: {
-                properties: { title: USERS_SHEET }
-              }
-            }]
-          }
-        });
-        
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: SPREADSHEET_ID,
-          range: \`\${USERS_SHEET}!A1:I1\`,
-          valueInputOption: 'RAW',
-          resource: {
-            values: [['Username', 'PasswordHash', 'Status', 'RegisteredAt', 'LastIP', 'IPHistory', 'IsAdmin', 'LastAccess', 'Favorites']]
-          }
-        });
-      } else {
-        throw error;
-      }
-    }
+    });
 
-    // Handle actions
-    switch (action) {
-      case 'register':
-        return await handleRegister(body, ip, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      case 'login':
-        return await handleLogin(body, ip, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      case 'verify':
-        return await handleVerify(body, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      case 'listUsers':
-        return await handleListUsers(body, users);
-      
-      case 'updateStatus':
-        return await handleUpdateStatus(body, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      case 'getUserData':
-        return await handleGetUserData(body, users);
-      
-      case 'saveFavorites':
-        return await handleSaveFavorites(body, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      case 'changePassword':
-        return await handleChangePassword(body, sheets, SPREADSHEET_ID, USERS_SHEET, users);
-      
-      default:
-        return jsonResponse({ error: 'Invalid action' }, 400);
-    }
-
+    return new Response(JSON.stringify(stationsMap), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   } catch (error) {
-    console.error('Auth error:', error);
-    return jsonResponse({ 
-      success: false, 
-      error: 'Server error',
-      details: error.message 
-    }, 500);
-  }
-}
-
-async function handleRegister(body, ip, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { username, password, captcha } = body;
-
-  if (!captcha || captcha.trim() === '') {
-    return jsonResponse({ 
-      success: false, 
-      message: 'Molimo potvrdite da niste robot' 
-    }, 400);
-  }
-
-  const existingUser = users.find(u => 
-    u.username.toLowerCase() === username.toLowerCase()
-  );
-
-  if (existingUser) {
-    return jsonResponse({ 
-      success: false, 
-      message: 'Korisničko ime već postoji' 
-    }, 400);
-  }
-
-  const now = new Date().toLocaleString('sr-RS', { timeZone: 'Europe/Belgrade' });
-  const hashedPassword = await hashPassword(password);
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: SPREADSHEET_ID,
-    range: \`\${USERS_SHEET}!A:I\`,
-    valueInputOption: 'RAW',
-    resource: {
-      values: [[username, hashedPassword, 'pending', now, ip, ip, 'false', '', '']]
-    }
-  });
-
-  return jsonResponse({ 
-    success: true, 
-    message: 'Zahtev za registraciju poslat! Čekajte odobrenje.' 
-  });
-}
-
-async function handleLogin(body, ip, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { username, password } = body;
-
-  const user = users.find(u => u.username === username);
-
-  if (!user) {
-    return jsonResponse({ 
-      success: false, 
-      message: 'Pogrešno korisničko ime ili lozinka' 
-    }, 401);
-  }
-
-  let isPasswordValid = false;
-  let needsMigration = false;
-
-  if (await verifyPassword(password, user.passwordHash)) {
-    isPasswordValid = true;
-  } else if (user.passwordHash === password) {
-    isPasswordValid = true;
-    needsMigration = true;
-  }
-
-  if (!isPasswordValid) {
-    return jsonResponse({ 
-      success: false, 
-      message: 'Pogrešno korisničko ime ili lozinka' 
-    }, 401);
-  }
-
-  if (user.status !== 'approved') {
-    return jsonResponse({ 
-      success: false, 
-      message: user.status === 'rejected' ? 'Nalog je odbijen' : 'Nalog još nije odobren' 
-    }, 403);
-  }
-
-  const userIdx = users.findIndex(u => u.username === username);
-  const ipHistory = user.ipHistory ? \`\${user.ipHistory}, \${ip}\` : ip;
-  const now = new Date().toLocaleString('sr-RS', { timeZone: 'Europe/Belgrade' });
-
-  const passwordToStore = needsMigration ? await hashPassword(password) : user.passwordHash;
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: \`\${USERS_SHEET}!B\${userIdx + 2}:I\${userIdx + 2}\`,
-    valueInputOption: 'RAW',
-    resource: {
-      values: [[passwordToStore, user.status, user.registeredAt, ip, ipHistory, user.isAdmin ? 'true' : 'false', now, user.favorites || '']]
-    }
-  });
-
-  if (needsMigration) {
-    console.log(\`✓ Migrated password for user: \${username}\`);
-  }
-
-  const authToken = btoa(\`\${username}:\${Date.now()}\`);
-
-  return jsonResponse({ 
-    success: true, 
-    message: 'Uspešna prijava',
-    token: authToken,
-    username: username,
-    isAdmin: user.isAdmin
-  });
-}
-
-async function handleVerify(body, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { token } = body;
-
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Nema tokena' }, 401);
-  }
-
-  try {
-    const decoded = atob(token);
-    const [tokenUsername, timestamp] = decoded.split(':');
-
-    const user = users.find(u => u.username === tokenUsername);
-    
-    if (!user || user.status !== 'approved') {
-      return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-    }
-
-    const tokenAge = Date.now() - parseInt(timestamp);
-    if (tokenAge > 7 * 24 * 60 * 60 * 1000) {
-      return jsonResponse({ success: false, message: 'Token je istekao' }, 401);
-    }
-
-    const userIdx = users.findIndex(u => u.username === tokenUsername);
-    const now = new Date().toLocaleString('sr-RS', { timeZone: 'Europe/Belgrade' });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: \`\${USERS_SHEET}!H\${userIdx + 2}\`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [[now]]
-      }
+    console.error('Stations error:', error);
+    return new Response(JSON.stringify({ 
+      error: 'Failed to load stations',
+      message: error.message 
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
     });
-
-    return jsonResponse({ success: true, username: tokenUsername, isAdmin: user.isAdmin });
-  } catch (e) {
-    return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
   }
-}
+}`;
 
-async function handleListUsers(body, users) {
-  const { token } = body;
+fs.writeFileSync('src/handlers/stations.js', stationsHandler);
+console.log('✓ Created src/handlers/stations.js');
 
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Neautorizovan pristup' }, 401);
-  }
+// config.js handler
+const configHandler = `// src/handlers/config.js
+export async function handleConfig(request, env) {
+  const config = {
+    refreshInterval: 60000,
+    mapCenter: [44.8125, 20.4612],
+    mapZoom: 13,
+    colors: [
+      '#e74c3c', '#3498db', '#9b59b6', '#2ecc71', '#f1c40f',
+      '#e67e22', '#1abc9c', '#34495e', '#d35400', '#c0392b',
+      '#2980b9', '#8e44ad', '#27ae60', '#f39c12', '#16a085'
+    ]
+  };
 
-  try {
-    const decoded = atob(token);
-    const [tokenUsername] = decoded.split(':');
-    const requestUser = users.find(u => u.username === tokenUsername);
-    
-    if (!requestUser || !requestUser.isAdmin) {
-      return jsonResponse({ success: false, message: 'Nemate admin privilegije' }, 403);
-    }
-  } catch (e) {
-    return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-  }
-
-  const sanitizedUsers = users.map(u => ({
-    username: u.username,
-    status: u.status,
-    registeredAt: u.registeredAt,
-    lastIP: u.lastIP,
-    ipHistory: u.ipHistory,
-    isAdmin: u.isAdmin,
-    lastAccess: u.lastAccess
-  }));
-
-  return jsonResponse({ success: true, users: sanitizedUsers });
-}
-
-async function handleUpdateStatus(body, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { token, userIndex, status } = body;
-
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Neautorizovan pristup' }, 401);
-  }
-
-  try {
-    const decoded = atob(token);
-    const [tokenUsername] = decoded.split(':');
-    const requestUser = users.find(u => u.username === tokenUsername);
-    
-    if (!requestUser || !requestUser.isAdmin) {
-      return jsonResponse({ success: false, message: 'Nemate admin privilegije' }, 403);
-    }
-  } catch (e) {
-    return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-  }
-
-  if (!userIndex || !status) {
-    return jsonResponse({ 
-      success: false, 
-      message: 'Nedostaju parametri' 
-    }, 400);
-  }
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: SPREADSHEET_ID,
-    range: \`\${USERS_SHEET}!C\${userIndex}\`,
-    valueInputOption: 'RAW',
-    resource: {
-      values: [[status]]
-    }
-  });
-
-  return jsonResponse({ success: true, message: 'Status ažuriran' });
-}
-
-async function handleGetUserData(body, users) {
-  const { token } = body;
-
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Nema tokena' }, 401);
-  }
-
-  try {
-    const decoded = atob(token);
-    const [tokenUsername, timestamp] = decoded.split(':');
-
-    const user = users.find(u => u.username === tokenUsername);
-    
-    if (!user || user.status !== 'approved') {
-      return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-    }
-
-    const tokenAge = Date.now() - parseInt(timestamp);
-    if (tokenAge > 7 * 24 * 60 * 60 * 1000) {
-      return jsonResponse({ success: false, message: 'Token je istekao' }, 401);
-    }
-
-    return jsonResponse({ 
-      success: true, 
-      username: tokenUsername,
-      favorites: user.favorites || ''
-    });
-  } catch (e) {
-    return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-  }
-}
-
-async function handleSaveFavorites(body, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { token, favorites } = body;
-
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Nema tokena' }, 401);
-  }
-
-  try {
-    const decoded = atob(token);
-    const [tokenUsername, timestamp] = decoded.split(':');
-
-    const user = users.find(u => u.username === tokenUsername);
-    
-    if (!user || user.status !== 'approved') {
-      return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-    }
-
-    const tokenAge = Date.now() - parseInt(timestamp);
-    if (tokenAge > 7 * 24 * 60 * 60 * 1000) {
-      return jsonResponse({ success: false, message: 'Token je istekao' }, 401);
-    }
-
-    const userIdx = users.findIndex(u => u.username === tokenUsername);
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: \`\${USERS_SHEET}!I\${userIdx + 2}\`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [[favorites || '']]
-      }
-    });
-
-    return jsonResponse({ success: true, message: 'Omiljene linije sačuvane' });
-  } catch (e) {
-    console.error('Save favorites error:', e);
-    return jsonResponse({ success: false, message: 'Greška pri čuvanju' }, 500);
-  }
-}
-
-async function handleChangePassword(body, sheets, SPREADSHEET_ID, USERS_SHEET, users) {
-  const { token, currentPassword, newPassword } = body;
-
-  if (!token) {
-    return jsonResponse({ success: false, message: 'Nema tokena' }, 401);
-  }
-
-  if (!currentPassword || !newPassword) {
-    return jsonResponse({ success: false, message: 'Nedostaju parametri' }, 400);
-  }
-
-  try {
-    const decoded = atob(token);
-    const [tokenUsername, timestamp] = decoded.split(':');
-
-    const user = users.find(u => u.username === tokenUsername);
-    
-    if (!user || user.status !== 'approved') {
-      return jsonResponse({ success: false, message: 'Nevažeći token' }, 401);
-    }
-
-    const tokenAge = Date.now() - parseInt(timestamp);
-    if (tokenAge > 7 * 24 * 60 * 60 * 1000) {
-      return jsonResponse({ success: false, message: 'Token je istekao' }, 401);
-    }
-
-    let isPasswordValid = false;
-    if (await verifyPassword(currentPassword, user.passwordHash)) {
-      isPasswordValid = true;
-    } else if (user.passwordHash === currentPassword) {
-      isPasswordValid = true;
-    }
-
-    if (!isPasswordValid) {
-      return jsonResponse({ success: false, message: 'Pogrešna trenutna lozinka' }, 400);
-    }
-
-    const newHashedPassword = await hashPassword(newPassword);
-    const userIdx = users.findIndex(u => u.username === tokenUsername);
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId: SPREADSHEET_ID,
-      range: \`\${USERS_SHEET}!B\${userIdx + 2}\`,
-      valueInputOption: 'RAW',
-      resource: {
-        values: [[newHashedPassword]]
-      }
-    });
-
-    return jsonResponse({ success: true, message: 'Lozinka uspešno promenjena' });
-  } catch (e) {
-    console.error('Change password error:', e);
-    return jsonResponse({ success: false, message: 'Greška pri promeni lozinke' }, 500);
-  }
-}
-
-function jsonResponse(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status,
+  return new Response(JSON.stringify(config), {
+    status: 200,
     headers: { 'Content-Type': 'application/json' }
   });
 }`;
 
-fs.writeFileSync('src/handlers/auth.js', authHandlerContent);
-console.log('✓ Created src/handlers/auth.js');
+fs.writeFileSync('src/handlers/config.js', configHandler);
+console.log('✓ Created src/handlers/config.js');
 
-// Create simple HTML serving handlers
-const htmlHandlers = {
-  'sve.js': 'Sve',
-  'linije.js': 'Linije'
-};
-
-Object.entries(htmlHandlers).forEach(([filename, handlerSuffix]) => {
-  const sourceFile = `api/${filename}`;
-  const destFile = `src/handlers/${filename}`;
-  
-  if (fs.existsSync(sourceFile)) {
-    const content = fs.readFileSync(sourceFile, 'utf8');
-    
-    // Extract just the HTML content
-    const htmlMatch = content.match(/const html = `([\s\S]*?)`;\s*res\.setHeader/);
-    
-    if (htmlMatch) {
-      const htmlContent = htmlMatch[1];
-      
-      const handlerContent = `// src/handlers/${filename}
-export async function handle${handlerSuffix}(request, env) {
-  const html = \`${htmlContent}\`;
-  
-  return new Response(html, {
-    status: 200,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' }
-  });
-}`;
-      
-      fs.writeFileSync(destFile, handlerContent);
-      console.log(`✓ Created ${destFile}`);
-    }
-  }
-});
-
-// Create clean vehicles handler
-const vehiclesHandlerContent = `// src/handlers/vehicles.js
+// vehicles.js handler
+const vehiclesHandler = `// src/handlers/vehicles.js
 export async function handleVehicles(request, env) {
   const url = new URL(request.url);
   const linesParam = url.searchParams.get('lines');
@@ -1146,268 +441,192 @@ function isValidGarageNumber(label) {
   return true;
 }`;
 
-fs.writeFileSync('src/handlers/vehicles.js', vehiclesHandlerContent);
-console.log('✓ Created src/handlers/vehicles.js (clean version)');
+fs.writeFileSync('src/handlers/vehicles.js', vehiclesHandler);
+console.log('✓ Created src/handlers/vehicles.js');
 
-// Create clean get-sheet-data handler
-const getSheetDataContent = `// src/handlers/get-sheet-data.js
-import { getSheetsClient } from '../utils/sheets-client.js';
+// Convert update-sheet.js and update-departures-sheet.js with proper transformation
+console.log('\n📝 Converting Sheets handlers...\n');
 
-export async function handleGetSheetData(request, env) {
-  if (request.method !== 'GET') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' }
-    });
+// Helper function to convert handlers
+function convertHandler(sourceFile, destFile, handlerName) {
+  if (!fs.existsSync(sourceFile)) {
+    console.log(`⚠️  Skipped ${sourceFile} (not found)`);
+    return;
   }
-
-  try {
-    const sheets = await getSheetsClient(env);
-    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
-    const sheetName = 'Baza';
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: \`\${sheetName}!A2:F\`,
-    });
-
-    const rows = response.data.values;
-
-    if (!rows || rows.length === 0) {
-      return new Response(JSON.stringify({ 
-        success: true, 
-        vehicles: [],
-        count: 0,
-        sheetName: sheetName
-      }), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const vehicles = rows.map(row => ({
-      vozilo: row[0] || '',
-      linija: row[1] || '',
-      polazak: row[2] || '',
-      smer: row[3] || '',
-      timestamp: row[4] || '',
-      datum: row[5] || ''
-    }));
-
-    return new Response(JSON.stringify({ 
-      success: true, 
-      vehicles: vehicles,
-      count: vehicles.length,
-      lastUpdate: vehicles[vehicles.length - 1]?.timestamp || null,
-      sheetName: sheetName
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error('Google Sheets error:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Failed to read sheet',
-      details: error.message 
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
+  
+  let content = fs.readFileSync(sourceFile, 'utf8');
+  
+  // Remove Node.js imports
+  content = content.replace(/import\s+.*from\s+['"]googleapis['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]crypto['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]fs['"]\s*;?\s*/g, '');
+  content = content.replace(/import\s+.*from\s+['"]path['"]\s*;?\s*/g, '');
+  
+  // Add imports
+  content = `import { getSheetsClient } from '../utils/sheets-client.js';\n\n` + content;
+  
+  // Replace export default function handler
+  content = content.replace(
+    /export default async function handler\s*\(/g,
+    `export async function ${handlerName}(`
+  );
+  
+  // Replace req/res with request
+  content = content.replace(/\breq\.method\b/g, 'request.method');
+  content = content.replace(/\breq\.query\b/g, 'query');
+  content = content.replace(/\breq\.body\b/g, 'body');
+  
+  // Parse query params
+  if (content.includes('query')) {
+    content = content.replace(
+      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{)/,
+      '$1\n  const url = new URL(request.url);\n  const query = Object.fromEntries(url.searchParams);'
+    );
   }
+  
+  // Parse request body
+  if (content.includes('body')) {
+    content = content.replace(
+      /(export (?:async )?function handle[A-Za-z]+\([^)]*\)\s*{(?:\s*const url[^;]+;\s*const query[^;]+;)?)/,
+      '$1\n  const body = request.method === "POST" ? await request.json() : {};'
+    );
+  }
+  
+  // Replace res.status().end()
+  content = content.replace(
+    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.end\s*\(\s*\)/g,
+    'return new Response(null, { status: $1 })'
+  );
+  
+  // Replace res.status().json()
+  content = content.replace(
+    /return\s+res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+  );
+  
+  content = content.replace(
+    /(?<!return\s+)res\.status\s*\(\s*(\d+)\s*\)\.json\s*\(\s*([^)]+)\s*\)/g,
+    'return new Response(JSON.stringify($2), { status: $1, headers: { "Content-Type": "application/json" } })'
+  );
+  
+  // Remove res.setHeader
+  content = content.replace(/res\.setHeader\s*\([^)]+\)\s*;?\s*/g, '');
+  
+  // Replace process.env with env
+  content = content.replace(/process\.env\./g, 'env.');
+  
+  // Replace Google Sheets setup
+  content = content.replace(/const sheets = google\.sheets\([^)]+\);?/g, 'const sheets = await getSheetsClient(env);');
+  
+  fs.writeFileSync(destFile, content);
+  console.log(`✓ Converted ${sourceFile} → ${destFile}`);
+}
+
+convertHandler('api/update-sheet.js', 'src/handlers/update-sheet.js', 'handleUpdateSheet');
+convertHandler('api/update-departures-sheet.js', 'src/handlers/update-departures-sheet.js', 'handleUpdateDeparturesSheet');
+
+// Create simplified HTML handlers
+console.log('\n📄 Creating HTML handlers...\n');
+
+const sveHandler = `// src/handlers/sve.js
+export async function handleSve(request, env) {
+  const html = \`<!DOCTYPE html>
+<html lang="sr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sva Vozila</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100%; }
+        .loading-card {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: white; padding: 30px 50px; border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3); z-index: 2000; text-align: center;
+        }
+        .loading-card.hidden { display: none; }
+        .spinner {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%;
+            width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 15px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .search-box {
+            position: absolute; top: 20px; left: 20px; z-index: 1000;
+            background: white; padding: 15px; border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2); width: 300px;
+        }
+        .search-box input {
+            width: 100%; padding: 10px; border: 2px solid #ddd;
+            border-radius: 6px; font-size: 14px; outline: none; transition: border-color 0.3s;
+        }
+        .search-box input:focus { border-color: #3498db; }
+        #searchResults { margin-top: 10px; max-height: 200px; overflow-y: auto; }
+        .search-result-item {
+            padding: 10px; cursor: pointer; border-radius: 5px;
+            margin-bottom: 5px; background: #f8f9fa; transition: background 0.2s;
+        }
+        .search-result-item:hover { background: #e9ecef; }
+        .bus-icon-container { background: none; border: none; }
+        .bus-wrapper { position: relative; width: 50px; height: 56px; transition: all 0.3s ease; }
+        .bus-circle {
+            width: 32px; height: 32px; border-radius: 50%; color: white;
+            display: flex; justify-content: center; align-items: center;
+            font-weight: bold; font-size: 13px; border: 2px solid white;
+            box-shadow: 0 3px 6px rgba(0,0,0,0.4);
+            position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 20;
+        }
+        .bus-garage-label {
+            position: absolute; top: 36px; left: 50%; transform: translateX(-50%);
+            font-size: 9px; font-weight: bold; color: white;
+            background: rgba(0, 0, 0, 0.7); padding: 2px 5px;
+            border-radius: 3px; white-space: nowrap; z-index: 19;
+        }
+        .bus-arrow {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 10; transition: transform 0.5s linear;
+        }
+        .arrow-head {
+            width: 0; height: 0; border-left: 7px solid transparent;
+            border-right: 7px solid transparent; border-bottom: 12px solid #333;
+            position: absolute; top: 0px; left: 50%; transform: translateX(-50%);
+        }
+        .popup-content { font-size: 13px; line-height: 1.6; }
+        .popup-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .popup-label { font-weight: bold; color: #555; margin-right: 10px; }
+    </style>
+</head>
+<body>
+    <div id="loadingCard" class="loading-card">
+        <div class="spinner"></div>
+        <p>Učitavanje vozila...</p>
+    </div>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Pretraži vozilo (garažni broj)..." />
+        <div id="searchResults"></div>
+    </div>
+    <div id="map"></div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/app.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            initApp();
+        });
+    </script>
+</body>
+</html>\`;
+
+  return new Response(html, {
+    status: 200,
+    headers: { 'Content-Type': 'text/html; charset=utf-8' }
+  });
 }`;
 
-fs.writeFileSync('src/handlers/get-sheet-data.js', getSheetDataContent);
-console.log('✓ Created src/handlers/get-sheet-data.js (clean version)');
+fs.writeFileSync('src/handlers/sve.js', sveHandler);
+console.log('✓ Created src/handlers/sve.js');
 
-// Create clean update-sheet handler  
-const updateSheetContent = `// src/handlers/update-sheet.js
-import { getSheetsClient } from '../utils/sheets-client.js';
-
-export async function handleUpdateSheet(request, env) {
-  if (request.method === 'OPTIONS') {
-    return new Response(null, { status: 200 });
-  }
-
-  if (request.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-
-  try {
-    const body = await request.json();
-    const { vehicles } = body;
-
-    if (!vehicles || !Array.isArray(vehicles)) {
-      return new Response(JSON.stringify({ error: 'Invalid data format' }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-
-    const sheets = await getSheetsClient(env);
-    const spreadsheetId = env.GOOGLE_SPREADSHEET_ID;
-
-    const now = new Date();
-    const timestamp = now.toLocaleString('sr-RS', { 
-      timeZone: 'Europe/Belgrade',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit'
-    });
-
-    const sheetName = 'Baza';
-
-    // Check if sheet exists
-    let sheetId = null;
-    try {
-      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-      const existingSheet = spreadsheet.data.sheets.find(
-        s => s.properties.title === sheetName
-      );
-      
-      if (existingSheet) {
-        sheetId = existingSheet.properties.sheetId;
-      } else {
-        const addSheetResponse = await sheets.spreadsheets.batchUpdate({
-          spreadsheetId,
-          resource: {
-            requests: [{
-              addSheet: {
-                properties: {
-                  title: sheetName,
-                  gridProperties: { rowCount: 100000, columnCount: 6, frozenRowCount: 1 }
-                }
-              }
-            }]
-          }
-        });
-        
-        sheetId = addSheetResponse.data.replies[0].addSheet.properties.sheetId;
-        
-        await sheets.spreadsheets.values.update({
-          spreadsheetId,
-          range: \`\${sheetName}!A1:F1\`,
-          valueInputOption: 'RAW',
-          resource: {
-            values: [['Vozilo', 'Linija', 'Polazak', 'Smer', 'Vreme upisa', 'Datum']]
-          }
-        });
-      }
-    } catch (error) {
-      console.error('Error checking/creating sheet:', error.message);
-      throw error;
-    }
-
-    // Read existing data
-    let existingData = [];
-    try {
-      const readResponse = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: \`\${sheetName}!A2:F\`,
-      });
-      existingData = readResponse.data.values || [];
-    } catch (readError) {
-      console.log('No existing data');
-    }
-
-    const existingVehicles = new Map();
-    existingData.forEach((row, index) => {
-      if (row[0]) {
-        existingVehicles.set(row[0], {
-          rowIndex: index + 2,
-          data: row
-        });
-      }
-    });
-
-    const finalData = [...existingData];
-    let newCount = 0;
-    let updateCount = 0;
-
-    vehicles.forEach(v => {
-      const vehicleLabel = v.vehicleLabel || '';
-      const rowData = [
-        vehicleLabel,
-        v.routeDisplayName || '',
-        v.startTime || '',
-        v.destName || '',
-        timestamp,
-        timestamp.split(',')[0].trim()
-      ];
-
-      if (existingVehicles.has(vehicleLabel)) {
-        const existingRow = existingVehicles.get(vehicleLabel);
-        const arrayIndex = existingRow.rowIndex - 2;
-        finalData[arrayIndex] = rowData;
-        updateCount++;
-      } else {
-        finalData.push(rowData);
-        newCount++;
-        existingVehicles.set(vehicleLabel, { 
-          rowIndex: finalData.length + 1, 
-          data: rowData 
-        });
-      }
-    });
-
-    // Batch write
-    const BATCH_SIZE = 500;
-    const batches = [];
-    
-    for (let i = 0; i < finalData.length; i += BATCH_SIZE) {
-      batches.push(finalData.slice(i, i + BATCH_SIZE));
-    }
-
-    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-      const batch = batches[batchIndex];
-      const startRow = (batchIndex * BATCH_SIZE) + 2;
-      const endRow = startRow + batch.length - 1;
-
-      await sheets.spreadsheets.values.update({
-        spreadsheetId,
-        range: \`\${sheetName}!A\${startRow}:F\${endRow}\`,
-        valueInputOption: 'RAW',
-        resource: { values: batch }
-      });
-
-      if (batchIndex < batches.length - 1) {
-        await new Promise(resolve => setTimeout(resolve, 200));
-      }
-    }
-
-    return new Response(JSON.stringify({ 
-      success: true, 
-      newVehicles: newCount,
-      updatedVehicles: updateCount,
-      totalProcessed: vehicles.length,
-      timestamp,
-      sheetUsed: sheetName,
-      batchesWritten: batches.length
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    });
-
-  } catch (error) {
-    console.error('Update sheet error:', error);
-    return new Response(JSON.stringify({ 
-      error: 'Unexpected error',
-      details: error.message
-    }), {
-      status: 500,
-      headers: { 'Content-Type': 'application/json' }
-    });
-  }
-}`;
-
-fs.writeFileSync('src/handlers/update-sheet.js', updateSheetContent);
-console.log('✓ Created src/handlers/update-sheet.js (clean version)');
+// linije.js would be similar - create if needed
 
 // =====================================================
 // STEP 3: Bundle static assets
@@ -1416,13 +635,6 @@ console.log('\n📦 Bundling static assets...\n');
 
 const staticFiles = [
   'public/index.html',
-  'public/login.html',
-  'public/admin.html',
-  'public/baza.html',
-  'public/polasci.html',
-  'public/juce.html',
-  'public/panel.html',
-  'public/auth-check.js',
   'public/app.min.js',
   'public/route-mapping.json'
 ];
@@ -1454,17 +666,12 @@ console.log('\n🔗 Creating main index.js...\n');
 
 const indexContent = `// src/index.js - Main Cloudflare Worker
 import { STATIC_ASSETS } from './assets.js';
-import { handleAuth } from './handlers/auth.js';
 import { handleVehicles } from './handlers/vehicles.js';
-import { handleGetSheetData } from './handlers/get-sheet-data.js';
 import { handleUpdateSheet } from './handlers/update-sheet.js';
 import { handleUpdateDeparturesSheet } from './handlers/update-departures-sheet.js';
-import { handleResetDepartures } from './handlers/reset-departures.js';
-import { handleHourlyCheck } from './handlers/hourly-check.js';
 import { handleStations } from './handlers/stations.js';
 import { handleConfig } from './handlers/config.js';
 import { handleSve } from './handlers/sve.js';
-import { handleLinije } from './handlers/linije.js';
 
 export default {
   async fetch(request, env, ctx) {
@@ -1486,15 +693,9 @@ export default {
     try {
       let response;
 
-      // ==================== API ROUTES ====================
-      if (path === '/api/auth') {
-        response = await handleAuth(request, env);
-      }
-      else if (path === '/api/vehicles') {
+      // API routes
+      if (path === '/api/vehicles') {
         response = await handleVehicles(request, env);
-      }
-      else if (path === '/api/get-sheet-data') {
-        response = await handleGetSheetData(request, env);
       }
       else if (path === '/api/update-sheet') {
         response = await handleUpdateSheet(request, env);
@@ -1502,27 +703,15 @@ export default {
       else if (path === '/api/update-departures-sheet') {
         response = await handleUpdateDeparturesSheet(request, env);
       }
-      else if (path === '/api/reset-departures') {
-        response = await handleResetDepartures(request, env);
-      }
-      else if (path === '/api/hourly-check') {
-        response = await handleHourlyCheck(request, env);
-      }
       else if (path === '/api/stations') {
         response = await handleStations(request, env);
       }
       else if (path === '/api/config') {
         response = await handleConfig(request, env);
       }
-      
-      // HTML serving endpoints
       else if (path === '/api/sve') {
         response = await handleSve(request, env);
       }
-      else if (path === '/api/linije') {
-        response = await handleLinije(request, env);
-      }
-      
       // Shapes data files (proxy from Vercel)
       else if (path === '/data/shapes.txt' || path === '/data/shapes_gradske.txt') {
         const filename = path.split('/').pop();
@@ -1545,7 +734,6 @@ export default {
           response = new Response('Error fetching shapes: ' + error.message, { status: 500 });
         }
       }
-      
       // Static files
       else {
         response = serveStaticFile(path);
@@ -1576,19 +764,6 @@ export default {
         status: 500,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' }
       });
-    }
-  },
-
-  async scheduled(event, env, ctx) {
-    console.log('Cron triggered:', new Date().toISOString());
-    try {
-      const request = new Request('https://worker/cron', {
-        method: 'GET',
-        headers: { 'X-Cron': 'true' }
-      });
-      await handleHourlyCheck(request, env);
-    } catch (error) {
-      console.error('Cron error:', error);
     }
   }
 };
@@ -1625,7 +800,7 @@ function getContentType(path) {
     'txt': 'text/plain; charset=utf-8'
   };
   return types[ext] || 'application/octet-stream';
-}`;
+}\`;
 
 fs.writeFileSync('src/index.js', indexContent);
 console.log('✓ Created src/index.js');
@@ -1633,7 +808,7 @@ console.log('✓ Created src/index.js');
 // =====================================================
 // DONE
 // =====================================================
-console.log('\n✅ Build complete!\n');
+console.log('\\n✅ Build complete!\\n');
 console.log('📝 Next steps:');
 console.log('  1. Set secrets:');
 console.log('     wrangler secret put GOOGLE_SHEETS_CLIENT_EMAIL');
